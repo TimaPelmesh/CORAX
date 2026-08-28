@@ -6,11 +6,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.network_classify import classify_device
 from puresnmp import Client, ObjectIdentifier, V2C
 
 OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 OID_SYS_NAME = "1.3.6.1.2.1.1.5.0"
 OID_SYS_LOCATION = "1.3.6.1.2.1.1.6.0"
+OID_SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
 OID_PAGE_COUNT = "1.3.6.1.2.1.43.10.2.1.4.1.1"
 OID_SUPPLY_DESC = "1.3.6.1.2.1.43.11.1.1.6"
 OID_SUPPLY_MAX = "1.3.6.1.2.1.43.11.1.1.8"
@@ -27,7 +29,40 @@ _HOSTNAME_LIKE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{5,24}$")
 _PRINTER_VENDOR_RE = re.compile(
     r"\b(HP|Hewlett|LaserJet|Konica|Minolta|bizhub|ineo|TOSHIBA|TEC|Canon|Epson|Brother|"
     r"Xerox|Ricoh|Kyocera|Samsung|Zebra|ZTC|TSC|Godex|Datamax|Honeywell|Intermec|Sato|"
-    r"Citizen|Dymo|Cab|Argox|Bixolon|Postek)\b",
+    r"Citizen|Dymo|Cab|Argox|Bixolon|Postek|Lexmark|Sharp|Pantum|OKI|OKIDATA|JetDirect|"
+    r"PageWide|OfficeJet|DeskJet|Color\s*Laser)\b",
+    re.I,
+)
+
+# Printer-MIB / well-known printer enterprises (not generic HPE/Aruba switch .11).
+_PRINTER_SYS_OBJECT_RE = re.compile(
+    r"(?:^|\.)1\.3\.6\.1\.4\.1\.(?:"
+    r"11\.2\.3\.9|"  # HP LaserJet / JetDirect
+    r"1602|"  # Canon
+    r"2435|"  # Brother
+    r"1347|"  # Kyocera
+    r"253|"  # Xerox
+    r"367|"  # Ricoh
+    r"10642|"  # Zebra
+    r"18334|"  # Konica Minolta
+    r"641|"  # Lexmark
+    r"2369|"  # Samsung
+    r"2001|"  # OKI
+    r"1248|"  # Epson
+    r"2385|"  # Sharp
+    r"1129|"  # Toshiba TEC
+    r"2699\.1\.1|"  # Intel Netport (print servers)
+    r"2554|"  # IBM Infoprint
+    r"4329"  # Dell printers
+    r")\.",
+    re.I,
+)
+
+_NON_PRINTER_DEVICE_RE = re.compile(
+    r"\bswitch\b|коммутатор|officeconnect|superstack|\brouter\b|firewall|access\s+point|"
+    r"wireless\s*controller|mikrotik|ubiquiti|cisco\s*(ios|catalyst|nexus|asa)|"
+    r"\bcatalyst\b|managed\s*switch|smart\s*switch|gigabit\s*switch|"
+    r"windows\s*(10|11|7|server)|darwin kernel|esxi|proxmox",
     re.I,
 )
 
@@ -474,12 +509,13 @@ async def probe_printer_snmp(
     timeout: float = 1.2,
     port: int = 161,
 ) -> SnmpPrinterSnapshot:
-    """Fast SNMP probe for discovery: only sysDescr/sysName, no MIB walks."""
+    """Fast SNMP probe: sysDescr/sysName/sysObjectID, then Printer-MIB if needed."""
     snap = SnmpPrinterSnapshot()
     client = Client(ip, V2C(community), port=port)
     try:
         descr = ""
         name = ""
+        obj_id = ""
         try:
             descr = str(await _safe_get(client, OID_SYS_DESCR, timeout) or "").strip()
         except Exception as e:
@@ -489,8 +525,74 @@ async def probe_printer_snmp(
             name = str(await _safe_get(client, OID_SYS_NAME, timeout) or "").strip()
         except Exception:
             pass
-        snap.model = _model_label(name, descr)
+        try:
+            obj_raw = await _safe_get(client, OID_SYS_OBJECT_ID, timeout)
+            if obj_raw is not None:
+                obj_id = str(obj_raw).strip().lstrip(".")
+        except Exception:
+            pass
+
+        blob = f"{descr} {name} {obj_id}"
+        cls = classify_device(descr, sys_object_id=obj_id or None, sys_name=name)
+        snap.model = _model_label(name, descr) or cls.model
         snap.sys_name = name[:255] if name and not _looks_broken_snmp_text(name) else None
+
+        if cls.is_network_gear or cls.device_type in {
+            "switch",
+            "router",
+            "ap",
+            "firewall",
+            "controller",
+        }:
+            return snap
+        if _NON_PRINTER_DEVICE_RE.search(blob) and cls.device_type != "printer":
+            return snap
+
+        looks = bool(
+            cls.device_type == "printer"
+            or (
+                snap.model
+                and _PRINTER_VENDOR_RE.search(snap.model)
+                and not _NON_PRINTER_DEVICE_RE.search(snap.model)
+            )
+            or (obj_id and _PRINTER_SYS_OBJECT_RE.search(obj_id if obj_id.endswith(".") else obj_id + "."))
+        )
+
+        if not looks:
+            # Unknown SNMP box: Printer-MIB is the ground truth (Linux print servers, odd sysDescr).
+            for oid in (OID_PRT_SERIAL, OID_PRT_NAME, OID_PAGE_COUNT):
+                try:
+                    val = await _safe_get(client, oid, min(timeout, 1.0))
+                except Exception:
+                    continue
+                if val is None:
+                    continue
+                text = str(val).strip()
+                if not text or _looks_broken_snmp_text(text):
+                    continue
+                looks = True
+                if oid == OID_PRT_SERIAL and len(text) >= 3:
+                    snap.serial_number = text[:128]
+                elif oid == OID_PRT_NAME and (not snap.model or _looks_like_device_hostname(snap.model)):
+                    snap.model = text[:512]
+                elif oid == OID_PAGE_COUNT:
+                    try:
+                        snap.page_count = int(val)
+                    except (TypeError, ValueError):
+                        pass
+                break
+
+        if not looks:
+            return snap
+
+        if not snap.model or _looks_like_device_hostname(snap.model):
+            line = _first_clean_line(descr) or _first_clean_line(name)
+            if line and not _looks_like_device_hostname(line):
+                snap.model = line[:512]
+            elif not snap.model:
+                snap.model = f"SNMP printer {ip}"
+            elif _looks_like_device_hostname(snap.model):
+                snap.model = (f"{line} ({snap.model})" if line else f"SNMP printer {ip}")[:512]
         snap.printer_kind = _classify_printer_kind(
             model=snap.model, descr=descr, name=name, supplies=[]
         )

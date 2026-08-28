@@ -36,6 +36,11 @@ services:
     image: corax:local
     pull_policy: never
     restart: unless-stopped
+    # Starlette BaseHTTPMiddleware + static files can exhaust the Docker default 1024 FDs.
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     depends_on:
       db:
         condition: service_healthy
@@ -58,8 +63,10 @@ services:
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?Set BOOTSTRAP_ADMIN_PASSWORD in backend/.env}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
-      # Host LAN IP for agent builds (container itself only sees 172.x). Optional if admin opens panel via LAN IP.
       CORAX_ADVERTISE_HOST: ${CORAX_ADVERTISE_HOST:-}
+      # Host LAN prefixes detected by npm run docker:up (Windows/Linux host, not 172.x).
+      CORAX_HOST_LAN_NETWORKS: ${CORAX_HOST_LAN_NETWORKS:-}
+      CORAX_SCAN_NETWORKS: ${CORAX_SCAN_NETWORKS:-}
       TLS_DIR: /data/tls
       AGENT_INBOX_DIR: ${AGENT_INBOX_DIR:-}
       WIKI_RAG_DIR: /data/wiki_rag_docs

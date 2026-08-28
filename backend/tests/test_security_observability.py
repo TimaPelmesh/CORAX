@@ -12,6 +12,25 @@ def test_security_headers_present(client):
     assert r.headers.get("X-Request-Id")
 
 
+def test_security_middleware_is_pure_asgi():
+    """BaseHTTPMiddleware TaskGroups leak FDs under static/file responses (Docker nfile=1024)."""
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    from app.main import CsrfAndOriginMiddleware
+    from app.observability import RequestIdMiddleware, RequestLoggingMiddleware
+    from app.password_change import PasswordChangeGateMiddleware
+    from app.security_headers import SecurityHeadersMiddleware
+
+    for cls in (
+        SecurityHeadersMiddleware,
+        RequestLoggingMiddleware,
+        RequestIdMiddleware,
+        PasswordChangeGateMiddleware,
+        CsrfAndOriginMiddleware,
+    ):
+        assert not issubclass(cls, BaseHTTPMiddleware), cls
+
+
 def test_request_id_echo(client):
     r = client.get("/api/v1/health", headers={"X-Request-Id": "test-rid-abc123"})
     assert r.status_code == 200

@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
-from app.models import Computer, DiskVolume, InstalledSoftware, Peripheral
+from app.software_families import classify_software_name
 from app.oem_normalize import (
     manufacturer_matches_display,
     motherboard_matches_display,
@@ -178,6 +178,27 @@ async def fetch_segment_computers(
             or 0
         )
         return items, total
+
+    if kind == "software_family":
+        sw_rows = (
+            await db.execute(select(InstalledSoftware.computer_id, InstalledSoftware.name))
+        ).all()
+        match_ids = {
+            int(cid)
+            for cid, sw_name in sw_rows
+            if (fam := classify_software_name(str(sw_name))) is not None and fam.name == name
+        }
+        if not match_ids:
+            return [], 0
+        r = await db.execute(
+            select(Computer)
+            .options(noload("*"))
+            .where(Computer.id.in_(match_ids))
+            .order_by(Computer.hostname.asc())
+            .limit(limit)
+        )
+        items = list(r.scalars().all())
+        return items, len(match_ids)
 
     if kind == "peripheral":
         r = await db.execute(

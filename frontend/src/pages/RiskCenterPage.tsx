@@ -3,10 +3,9 @@ import { Link } from 'react-router-dom'
 import {
   api,
   type RiskAiInsight,
-  type RiskComputer,
-  type RiskFinding,
   type RiskHistoryPoint,
   type RiskOverview,
+  type RiskProblemGroup,
 } from '../api'
 import { useAuth } from '../AuthContext'
 import { ComputerDetailModal } from '../components/ComputerDetailModal'
@@ -19,13 +18,14 @@ import { useToast } from '../ToastContext'
 const COPY = {
   ru: {
     title: 'Центр рисков',
-    subtitle: 'Проверяем парк по понятным правилам, а локальный AI помогает увидеть закономерности',
+    subtitle: 'Актуальные проблемы парка: антивирус, обновления Windows, диски и остальные правила',
     loading: 'Анализируем состояние парка…',
     health: 'Здоровье парка',
     healthHint: 'Чем выше, тем меньше подтверждённых рисков',
     critical: 'Критические',
     high: 'Высокий риск',
     medium: 'Требуют внимания',
+    low: 'Низкий',
     healthy: 'Без заметных рисков',
     aiTitle: 'Инсайты локального AI',
     aiHint: 'Модель получает только компактную сводку рассчитанных рисков — не полный инвентарь.',
@@ -36,49 +36,48 @@ const COPY = {
     aiPermission: 'Запуск доступен редакторам и администраторам.',
     categories: 'Откуда складывается риск',
     affected: 'ПК затронуто',
-    computers: 'Компьютеры с наибольшим риском',
-    findings: 'Важные наблюдения',
-    search: 'Поиск по компьютеру или проблеме',
+    problems: 'Актуальные проблемы',
+    problemsHint:
+      'Сортировка по типу проблемы, не по компьютеру. Игнор действует на весь тип — новые ПК с той же проблемой тоже скрываются.',
+    search: 'Поиск по проблеме или компьютеру',
     all: 'Все уровни',
     noItems: 'По выбранному фильтру ничего не найдено',
     recommendation: 'Что сделать',
-    score: 'риск',
-    findingsCount: 'наблюдений',
+    score: 'вес',
+    pcs: 'ПК',
     openFleet: 'Открыть парк',
     updated: 'Рассчитано',
     total: 'Всего ПК',
     antivirus: 'Антивирус подтверждён',
     antivirusAttention: 'Антивирус требует внимания',
     antivirusUnknown: 'Нет данных об антивирусе',
-    computer: 'Компьютер',
-    antivirusColumn: 'Антивирус',
-    antivirusProtected: 'Подтверждён',
-    antivirusNeedsAttention: 'Требует внимания',
-    antivirusNoData: 'Нет данных',
     history: 'История здоровья парка',
-    historyHint: 'Снимки оценки. Подтверждённые и игнорируемые наблюдения не снижают балл.',
+    historyHint: 'Снимки оценки. Подтверждённые и игнорируемые проблемы не снижают балл.',
     historyEmpty: 'История появится после нескольких расчётов.',
     historyScore: 'здоровье',
     openFindings: 'Открытые',
     acknowledged: 'Подтверждённые',
     ignored: 'Игнорируемые',
-    acknowledge: 'Подтвердить',
-    ignore: 'Игнорировать',
-    reopen: 'Вернуть',
+    acknowledge: 'Подтвердить проблему',
+    ignore: 'Игнорировать проблему',
+    reopen: 'Вернуть проблему',
     actionBusy: 'Сохраняем…',
-    actionSaved: 'Статус наблюдения обновлён',
+    actionSaved: 'Статус проблемы обновлён',
     openComputer: 'Открыть карточку ПК',
-    managedHint: 'Подтверждение снимает баллы, пока проблема не будет возвращена в работу.',
+    showPcs: 'Показать компьютеры',
+    hidePcs: 'Скрыть компьютеры',
+    managedHint: 'Игнор относится к конкретной проблеме во всём парке, а не к одному ПК.',
   },
   en: {
     title: 'Risk center',
-    subtitle: 'Deterministic fleet checks with optional local-AI pattern analysis',
+    subtitle: 'Live fleet problems: antivirus, Windows updates, disks, and the rest of the rules',
     loading: 'Analyzing fleet health…',
     health: 'Fleet health',
     healthHint: 'Higher means fewer confirmed risks',
     critical: 'Critical',
     high: 'High risk',
     medium: 'Needs attention',
+    low: 'Low',
     healthy: 'No notable risks',
     aiTitle: 'Local AI insights',
     aiHint: 'The model receives only a compact calculated summary, not the full inventory.',
@@ -89,61 +88,59 @@ const COPY = {
     aiPermission: 'Editors and administrators can run the analysis.',
     categories: 'Risk composition',
     affected: 'computers affected',
-    computers: 'Highest-risk computers',
-    findings: 'Important findings',
-    search: 'Search computer or finding',
+    problems: 'Current problems',
+    problemsHint:
+      'Grouped by problem type, not by computer. Ignoring a type hides it fleet-wide, including new PCs with the same issue.',
+    search: 'Search problem or computer',
     all: 'All levels',
     noItems: 'Nothing matches the selected filter',
     recommendation: 'Recommended action',
-    score: 'risk',
-    findingsCount: 'findings',
+    score: 'weight',
+    pcs: 'PCs',
     openFleet: 'Open fleet',
     updated: 'Calculated',
     total: 'Total computers',
     antivirus: 'Antivirus confirmed',
     antivirusAttention: 'Antivirus needs attention',
     antivirusUnknown: 'No antivirus data',
-    computer: 'Computer',
-    antivirusColumn: 'Antivirus',
-    antivirusProtected: 'Confirmed',
-    antivirusNeedsAttention: 'Needs attention',
-    antivirusNoData: 'No data',
     history: 'Fleet health history',
-    historyHint: 'Score snapshots. Acknowledged and ignored findings do not reduce the score.',
+    historyHint: 'Score snapshots. Acknowledged and ignored problems do not reduce the score.',
     historyEmpty: 'History will appear after a few calculations.',
     historyScore: 'health',
     openFindings: 'Open',
     acknowledged: 'Acknowledged',
     ignored: 'Ignored',
-    acknowledge: 'Acknowledge',
-    ignore: 'Ignore',
-    reopen: 'Reopen',
+    acknowledge: 'Acknowledge problem',
+    ignore: 'Ignore problem',
+    reopen: 'Reopen problem',
     actionBusy: 'Saving…',
-    actionSaved: 'Finding status updated',
+    actionSaved: 'Problem status updated',
     openComputer: 'Open computer card',
-    managedHint: 'Acknowledgement removes the score until the finding is reopened.',
+    showPcs: 'Show computers',
+    hidePcs: 'Hide computers',
+    managedHint: 'Ignore applies to this problem across the fleet, not to a single PC.',
   },
 } as const
 
-type RiskLevel = 'all' | RiskComputer['level']
 type FindingFilter = 'open' | 'acknowledged' | 'ignored'
+type SeverityFilter = 'all' | 'critical' | 'high' | 'medium' | 'low'
 
-const levelTone: Record<RiskComputer['level'], string> = {
+const severityTone: Record<RiskProblemGroup['severity'], string> = {
   critical: 'border-blue-600/40 bg-blue-600/15 text-blue-800 dark:text-blue-200',
   high: 'border-blue-500/35 bg-blue-500/10 text-blue-700 dark:text-blue-200',
   medium: 'border-blue-400/30 bg-blue-400/10 text-blue-700 dark:text-blue-300',
-  healthy: 'border-blue-300/25 bg-blue-300/10 text-blue-600 dark:text-blue-300',
+  low: 'border-blue-300/25 bg-blue-300/10 text-blue-600 dark:text-blue-300',
 }
 
-const severityDot: Record<RiskFinding['severity'], string> = {
+const severityDot: Record<RiskProblemGroup['severity'], string> = {
   critical: 'bg-blue-800 dark:bg-blue-300',
   high: 'bg-blue-600 dark:bg-blue-400',
   medium: 'bg-blue-400 dark:bg-blue-500',
   low: 'bg-blue-300 dark:bg-blue-600',
 }
 
-function findingStatus(finding: RiskFinding): FindingFilter {
-  return finding.status === 'acknowledged' || finding.status === 'ignored' ? finding.status : 'open'
+function groupStatus(group: RiskProblemGroup): FindingFilter {
+  return group.status === 'acknowledged' || group.status === 'ignored' ? group.status : 'open'
 }
 
 function RiskSkeleton({ text }: { text: string }) {
@@ -179,13 +176,14 @@ export function RiskCenterPage() {
   const [overview, setOverview] = useState<RiskOverview | null>(null)
   const [history, setHistory] = useState<RiskHistoryPoint[]>([])
   const [loading, setLoading] = useState(true)
-  const [level, setLevel] = useState<RiskLevel>('all')
+  const [severity, setSeverity] = useState<SeverityFilter>('all')
   const [query, setQuery] = useState('')
   const [findingFilter, setFindingFilter] = useState<FindingFilter>('open')
   const [aiInsight, setAiInsight] = useState<RiskAiInsight | null>(null)
   const [aiBusy, setAiBusy] = useState(false)
   const [detailComputerId, setDetailComputerId] = useState<number | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
+  const [expandedRule, setExpandedRule] = useState<string | null>(null)
   const canManage = Boolean(user?.is_superuser || user?.role === 'editor')
   const canRunAi = canManage
 
@@ -213,28 +211,35 @@ export function RiskCenterPage() {
     }
   }, [loadOverview, toast])
 
-  const filteredComputers = useMemo(() => {
-    if (!overview) return []
+  const problemGroups = overview?.problem_groups ?? []
+
+  const statusCounts = useMemo(() => {
+    const counts = { open: 0, acknowledged: 0, ignored: 0 }
+    for (const group of problemGroups) {
+      counts[groupStatus(group)] += 1
+    }
+    return counts
+  }, [problemGroups])
+
+  const filteredProblems = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return overview.computers.filter((computer) => {
-      if (level !== 'all' && computer.level !== level) return false
+    return problemGroups.filter((group) => {
+      if (groupStatus(group) !== findingFilter) return false
+      if (severity !== 'all' && group.severity !== severity) return false
       if (!q) return true
       return (
-        computer.hostname.toLowerCase().includes(q) ||
-        (computer.ip_address || '').toLowerCase().includes(q) ||
-        computer.top_findings.some(
-          (finding) =>
-            finding.title.toLowerCase().includes(q) ||
-            finding.description.toLowerCase().includes(q),
+        group.title.toLowerCase().includes(q) ||
+        group.description.toLowerCase().includes(q) ||
+        group.rule.toLowerCase().includes(q) ||
+        group.computers.some(
+          (pc) =>
+            pc.hostname.toLowerCase().includes(q) ||
+            (pc.ip_address || '').toLowerCase().includes(q) ||
+            (pc.os_name || '').toLowerCase().includes(q),
         )
       )
     })
-  }, [level, overview, query])
-
-  const filteredFindings = useMemo(() => {
-    if (!overview) return []
-    return overview.findings.filter((finding) => findingStatus(finding) === findingFilter)
-  }, [findingFilter, overview])
+  }, [findingFilter, problemGroups, query, severity])
 
   async function runAi(force: boolean) {
     setAiBusy(true)
@@ -254,11 +259,11 @@ export function RiskCenterPage() {
     }
   }
 
-  async function applyFindingAction(finding: RiskFinding, status: FindingFilter) {
+  async function applyProblemAction(group: RiskProblemGroup, status: FindingFilter) {
     if (!canManage) return
-    setActionId(finding.id)
+    setActionId(group.finding_id)
     try {
-      await api.riskFindingAction({ finding_id: finding.id, status })
+      await api.riskFindingAction({ finding_id: group.finding_id, status })
       await loadOverview()
       toast.ok(c.actionSaved)
     } catch (error) {
@@ -309,13 +314,16 @@ export function RiskCenterPage() {
           {c.total}: <strong>{overview.computers_total}</strong>
         </span>
         <span className="rounded-lg bg-blue-600/10 px-3 py-1.5 text-blue-800 dark:text-blue-200">
-          {c.critical}: <strong>{overview.computers_critical}</strong>
+          {c.problems}: <strong>{statusCounts.open}</strong>
         </span>
         <span className="rounded-lg bg-blue-500/10 px-3 py-1.5 text-blue-700 dark:text-blue-200">
-          {c.high}: <strong>{overview.computers_high}</strong>
+          {c.critical}: <strong>{overview.computers_critical}</strong>
         </span>
         <span className="rounded-lg bg-blue-400/10 px-3 py-1.5 text-blue-700 dark:text-blue-300">
-          {c.antivirus}: <strong>{overview.antivirus_protected}/{overview.computers_total} · {antivirusPercent}%</strong>
+          {c.antivirus}:{' '}
+          <strong>
+            {overview.antivirus_protected}/{overview.computers_total} · {antivirusPercent}%
+          </strong>
         </span>
         <span className="rounded-lg bg-blue-300/10 px-3 py-1.5 text-blue-700 dark:text-blue-300">
           {c.antivirusAttention}: <strong>{overview.antivirus_attention}</strong>
@@ -398,9 +406,7 @@ export function RiskCenterPage() {
               {aiInsight ? (
                 <div className="whitespace-pre-wrap">{aiInsight.text}</div>
               ) : (
-                <div className="flex min-h-24 items-center text-[var(--color-fg-muted)]">
-                  {c.aiEmpty}
-                </div>
+                <div className="flex min-h-24 items-center text-[var(--color-fg-muted)]">{c.aiEmpty}</div>
               )}
               {aiInsight?.model ? (
                 <div className="mt-3 border-t border-[var(--color-border)] pt-2 text-[10px] text-[var(--color-fg-subtle)]">
@@ -415,7 +421,10 @@ export function RiskCenterPage() {
 
       <section className="risk-card-enter overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className="flex flex-col gap-3 border-b border-[var(--color-border)] p-5 lg:flex-row lg:items-center lg:justify-between">
-          <h2 className="font-semibold text-[var(--color-fg)]">{c.computers}</h2>
+          <div>
+            <h2 className="font-semibold text-[var(--color-fg)]">{c.problems}</h2>
+            <p className="mt-1 text-xs text-[var(--color-fg-muted)]">{c.problemsHint}</p>
+          </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <input
               className="app-input min-w-[16rem]"
@@ -423,164 +432,133 @@ export function RiskCenterPage() {
               onChange={(event) => setQuery(event.target.value)}
               placeholder={c.search}
             />
-            <select className="app-input sm:w-44" value={level} onChange={(event) => setLevel(event.target.value as RiskLevel)}>
+            <select
+              className="app-input sm:w-44"
+              value={severity}
+              onChange={(event) => setSeverity(event.target.value as SeverityFilter)}
+            >
               <option value="all">{c.all}</option>
               <option value="critical">{c.critical}</option>
               <option value="high">{c.high}</option>
               <option value="medium">{c.medium}</option>
-              <option value="healthy">{c.healthy}</option>
+              <option value="low">{c.low}</option>
             </select>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-[var(--color-border)] bg-[var(--color-bg-muted)]/60 text-xs uppercase tracking-wide text-[var(--color-fg-subtle)]">
-              <tr>
-                <th className="px-4 py-3">{c.computer}</th>
-                <th className="px-4 py-3">{c.score}</th>
-                <th className="px-4 py-3">{c.antivirusColumn}</th>
-                <th className="px-4 py-3">{c.findings}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--color-border)]">
-              {filteredComputers.slice(0, 100).map((computer) => (
-                <tr
-                  key={computer.id}
-                  className="cursor-pointer transition-colors hover:bg-[var(--color-bg-muted)]/60"
-                  onClick={() => setDetailComputerId(computer.id)}
-                  title={c.openComputer}
-                >
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-[var(--color-fg)]">{computer.hostname}</div>
-                    <div className="mt-1 text-xs text-[var(--color-fg-muted)]">
-                      {[computer.ip_address, computer.os_name].filter(Boolean).join(' · ') || '—'}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${levelTone[computer.level]}`}>
-                      {computer.risk_score}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <span className="inline-flex rounded-full border border-blue-400/30 bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300">
-                      {computer.antivirus_status === 'protected'
-                        ? c.antivirusProtected
-                        : computer.antivirus_status === 'attention'
-                          ? c.antivirusNeedsAttention
-                          : c.antivirusNoData}
-                    </span>
-                  </td>
-                  <td className="min-w-[22rem] px-4 py-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      {computer.top_findings.map((finding) => (
-                        <span key={finding.id} className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/8 px-2 py-1 text-xs text-[var(--color-fg-muted)]">
-                          <span className={`h-1.5 w-1.5 rounded-full ${severityDot[finding.severity]}`} />
-                          {finding.title}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredComputers.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-10 text-center text-sm text-[var(--color-fg-muted)]">
-                    {c.noItems}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-5 py-3">
+          {(
+            [
+              ['open', c.openFindings, statusCounts.open],
+              ['acknowledged', c.acknowledged, statusCounts.acknowledged],
+              ['ignored', c.ignored, statusCounts.ignored],
+            ] as const
+          ).map(([id, label, count]) => (
+            <button
+              key={id}
+              type="button"
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ${
+                findingFilter === id
+                  ? 'bg-blue-600 text-white ring-blue-600'
+                  : 'bg-[var(--color-surface)] text-[var(--color-fg-muted)] ring-[var(--color-border)] hover:text-[var(--color-fg)]'
+              }`}
+              onClick={() => setFindingFilter(id)}
+            >
+              {label} · {count}
+            </button>
+          ))}
+          <Link to="/computers" className="ml-auto text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+            {c.openFleet}
+          </Link>
         </div>
-      </section>
-
-      <section className="risk-card-enter rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="font-semibold text-[var(--color-fg)]">{c.findings}</h2>
-            <p className="mt-1 text-xs text-[var(--color-fg-muted)]">{c.managedHint}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {([
-              ['open', c.openFindings, overview.findings_open ?? overview.findings_total],
-              ['acknowledged', c.acknowledged, overview.findings_acknowledged ?? 0],
-              ['ignored', c.ignored, overview.findings_ignored ?? 0],
-            ] as const).map(([id, label, count]) => (
-              <button
-                key={id}
-                type="button"
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition ${
-                  findingFilter === id
-                    ? 'bg-blue-600 text-white ring-blue-600'
-                    : 'bg-[var(--color-surface)] text-[var(--color-fg-muted)] ring-[var(--color-border)] hover:text-[var(--color-fg)]'
-                }`}
-                onClick={() => setFindingFilter(id)}
-              >
-                {label} · {count}
-              </button>
-            ))}
-            <Link to="/computers" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
-              {c.openFleet}
-            </Link>
-          </div>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-2">
-          {filteredFindings.slice(0, 12).map((finding) => (
-            <article key={finding.id} className="rounded-xl border border-[var(--color-border)] p-4">
-              <div className="flex items-start gap-3">
-                <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${severityDot[finding.severity]}`} />
-                <div className="min-w-0 flex-1">
+        <p className="px-5 pt-3 text-xs text-[var(--color-fg-muted)]">{c.managedHint}</p>
+        <div className="divide-y divide-[var(--color-border)]">
+          {filteredProblems.map((group) => {
+            const expanded = expandedRule === group.rule
+            return (
+              <article key={group.rule} className="px-5 py-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <button
                     type="button"
-                    className="text-left text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
-                    onClick={() => setDetailComputerId(finding.computer_id)}
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setExpandedRule(expanded ? null : group.rule)}
                   >
-                    {finding.hostname}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${severityDot[group.severity]}`} />
+                      <h3 className="font-semibold text-[var(--color-fg)]">{group.title}</h3>
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${severityTone[group.severity]}`}
+                      >
+                        {group.affected_computers} {c.pcs}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-fg-muted)]">{group.description}</p>
+                    <div className="mt-2 text-xs text-blue-700 dark:text-blue-300">
+                      {expanded ? c.hidePcs : c.showPcs}
+                    </div>
                   </button>
-                  <h3 className="mt-1 font-semibold text-[var(--color-fg)]">{finding.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-fg-muted)]">{finding.description}</p>
-                  <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800 dark:bg-blue-500/10 dark:text-blue-200">
-                    <strong>{c.recommendation}:</strong> {finding.recommendation}
-                  </div>
-                  {canManage ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {findingStatus(finding) === 'open' ? (
-                        <>
+                  <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
+                    <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800 dark:bg-blue-500/10 dark:text-blue-200">
+                      <strong>{c.recommendation}:</strong> {group.recommendation}
+                    </div>
+                    {canManage ? (
+                      <div className="flex flex-wrap gap-2">
+                        {groupStatus(group) === 'open' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 disabled:opacity-50 dark:border-blue-500/30 dark:bg-black/20 dark:text-blue-200"
+                              disabled={actionId === group.finding_id}
+                              onClick={() => void applyProblemAction(group, 'acknowledged')}
+                            >
+                              {actionId === group.finding_id ? c.actionBusy : c.acknowledge}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-fg-muted)] disabled:opacity-50"
+                              disabled={actionId === group.finding_id}
+                              onClick={() => void applyProblemAction(group, 'ignored')}
+                            >
+                              {c.ignore}
+                            </button>
+                          </>
+                        ) : (
                           <button
                             type="button"
                             className="rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 disabled:opacity-50 dark:border-blue-500/30 dark:bg-black/20 dark:text-blue-200"
-                            disabled={actionId === finding.id}
-                            onClick={() => void applyFindingAction(finding, 'acknowledged')}
+                            disabled={actionId === group.finding_id}
+                            onClick={() => void applyProblemAction(group, 'open')}
                           >
-                            {actionId === finding.id ? c.actionBusy : c.acknowledge}
+                            {actionId === group.finding_id ? c.actionBusy : c.reopen}
                           </button>
-                          <button
-                            type="button"
-                            className="rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-fg-muted)] disabled:opacity-50"
-                            disabled={actionId === finding.id}
-                            onClick={() => void applyFindingAction(finding, 'ignored')}
-                          >
-                            {c.ignore}
-                          </button>
-                        </>
-                      ) : (
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                {expanded ? (
+                  <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {group.computers.map((pc) => (
+                      <li key={pc.finding_id}>
                         <button
                           type="button"
-                          className="rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-800 disabled:opacity-50 dark:border-blue-500/30 dark:bg-black/20 dark:text-blue-200"
-                          disabled={actionId === finding.id}
-                          onClick={() => void applyFindingAction(finding, 'open')}
+                          className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2 text-left text-sm hover:bg-[var(--color-bg-muted)]/60"
+                          onClick={() => setDetailComputerId(pc.id)}
+                          title={c.openComputer}
                         >
-                          {actionId === finding.id ? c.actionBusy : c.reopen}
+                          <div className="font-medium text-[var(--color-fg)]">{pc.hostname}</div>
+                          <div className="mt-0.5 text-xs text-[var(--color-fg-muted)]">
+                            {[pc.ip_address, pc.os_name, pc.evidence].filter(Boolean).join(' · ') || '—'}
+                          </div>
                         </button>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </article>
-          ))}
-          {filteredFindings.length === 0 ? (
-            <div className="col-span-full p-8 text-center text-sm text-[var(--color-fg-muted)]">{c.noItems}</div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </article>
+            )
+          })}
+          {filteredProblems.length === 0 ? (
+            <div className="p-10 text-center text-sm text-[var(--color-fg-muted)]">{c.noItems}</div>
           ) : null}
         </div>
       </section>

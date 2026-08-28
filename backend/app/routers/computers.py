@@ -378,7 +378,21 @@ async def list_computers(
         .outerjoin(sq_pe, Computer.id == sq_pe.c.computer_id)
     )
     if q and q.strip():
-        stmt = stmt.where(Computer.hostname.ilike(like_contains(q), escape="\\"))
+        needle = like_contains(q)
+        stmt = stmt.outerjoin(User, Computer.assigned_user_id == User.id).where(
+            or_(
+                Computer.hostname.ilike(needle, escape="\\"),
+                Computer.ip_address.ilike(needle, escape="\\"),
+                Computer.serial_number.ilike(needle, escape="\\"),
+                Computer.mac_primary.ilike(needle, escape="\\"),
+                Computer.location.ilike(needle, escape="\\"),
+                Computer.model.ilike(needle, escape="\\"),
+                Computer.manufacturer.ilike(needle, escape="\\"),
+                Computer.notes.ilike(needle, escape="\\"),
+                User.username.ilike(needle, escape="\\"),
+                User.full_name.ilike(needle, escape="\\"),
+            )
+        )
     if tag_ids:
         tagged_computers = select(computer_tags.c.computer_id).where(
             computer_tags.c.tag_id.in_(tag_ids)

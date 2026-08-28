@@ -27,8 +27,8 @@ def _poll_concurrency(cfg: EffectivePrinterPollConfig) -> int:
 
 
 def _discovery_concurrency(cfg: EffectivePrinterPollConfig) -> int:
-    cap = 12 if _WIN32 else 24
-    return max(4, min(cap, cfg.poll_concurrency * 2))
+    cap = 12 if _WIN32 else 48
+    return max(8, min(cap, max(cfg.poll_concurrency * 2, 16)))
 
 
 @dataclass
@@ -47,6 +47,7 @@ class PrinterPollStats:
     discovered: int = 0
     discovery_created: int = 0
     discovery_updated: int = 0
+    discovery_message: str = ""
     message: str = ""
 
     def to_json(self) -> str:
@@ -55,7 +56,11 @@ class PrinterPollStats:
 
 def format_poll_message(stats: PrinterPollStats) -> str:
     if stats.total_in_db == 0:
-        return "SNMP discovery завершён: принтеры не найдены. Проверьте VLAN/фаервол/community/SNMP v2c."
+        return stats.discovery_message or (
+            "SNMP discovery завершён: принтеры не найдены. "
+            "Сканер должен ходить в LAN хоста, не в Docker 172.x. "
+            "Проверьте VLAN/фаервол/community/SNMP v2c."
+        )
     if stats.with_ip == 0:
         return f"В базе {stats.total_in_db} записей без IP. Удалите мусор или добавьте принтер с IP."
     if stats.polled == 0:
@@ -177,16 +182,23 @@ async def run_printer_poll_cycle(
     cfg = await get_effective_printer_poll_config(db)
     run_discovery = cfg.snmp_enabled and (triggered_by == "manual" or stats.total_in_db == 0)
     if run_discovery:
+        from app.network_poll_config import get_effective_network_poll_config
+
+        net_cfg = await get_effective_network_poll_config(db)
+        extra_comms = [net_cfg.snmp_community] if net_cfg.snmp_community else []
         discovery = await discover_snmp_printers(
             db,
             community=cfg.snmp_community,
+            communities=extra_comms,
             timeout=min(2.0, max(0.8, cfg.snmp_timeout_seconds)),
-            total_budget_seconds=35.0 if triggered_by == "manual" else 30.0,
+            total_budget_seconds=120.0 if triggered_by == "manual" else 75.0,
             concurrency=_discovery_concurrency(cfg),
+            cidr_list=net_cfg.cidr_list or None,
         )
         stats.discovered = discovery.found
         stats.discovery_created = discovery.created
         stats.discovery_updated = discovery.updated
+        stats.discovery_message = discovery.message
         stats.total_in_db = int(await db.scalar(select(func.count()).select_from(Printer).where(tab)) or 0)
         stats.with_ip = int(
             await db.scalar(

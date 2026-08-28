@@ -159,6 +159,10 @@ class Settings(BaseSettings):
     # Host/IP that agents should use (Docker: set to host LAN IP — container sees 172.x otherwise).
     # Example: CORAX_ADVERTISE_HOST=192.168.1.10
     corax_advertise_host: str = ""
+    # Extra SNMP scan prefixes (comma/space). Set in .env if auto-detect is wrong.
+    corax_scan_networks: str = ""
+    # Injected by npm run docker:up from the HOST LAN (not the container 172.x bridge).
+    corax_host_lan_networks: str = ""
 
 
 def _is_default_secret(v: str) -> bool:

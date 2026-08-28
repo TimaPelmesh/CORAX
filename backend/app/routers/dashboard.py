@@ -15,6 +15,7 @@ from app.oem_normalize import (
     aggregate_system_model_counts,
 )
 from app.os_normalize import aggregate_os_counts
+from app.software_families import classify_software_name
 from app.physical_disks import (
     aggregate_physical_disks,
     aggregate_pc_disk_catalog,
@@ -41,7 +42,7 @@ from app.dashboard_drilldown import (
     fetch_segment_computers,
     volumes_by_computer,
 )
-from app.text_sanitize import like_contains
+from app.printer_cleanup import is_noise_printer_row
 from app.routers.notes import accessible_notes_count, accessible_upcoming_notes
 from app.schemas import (
     CatalogFilterHostsRequest,
@@ -62,6 +63,12 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+def _count_tab_printers(rows: list[tuple]) -> int:
+    return sum(1 for n, m, sn in rows if not is_noise_printer_row(n, m, sn))
+
+
 logger = logging.getLogger(__name__)
 
 _SUMMARY_CACHE_SECONDS = 30.0
@@ -317,10 +324,14 @@ async def dashboard_nav_badges(
         )
         or 0
     )
-    snmp_printers_total = int(
-        await db.scalar(select(func.count()).select_from(Printer).where(Printer.source == "snmp"))
-        or 0
-    )
+    pr_rows = (
+        await db.execute(
+            select(Printer.name, Printer.snmp_model, Printer.snmp_sys_name).where(
+                Printer.source.in_(("snmp", "manual"))
+            )
+        )
+    ).all()
+    snmp_printers_total = _count_tab_printers(pr_rows)
     service_requests_active = int(
         await db.scalar(
             select(func.count())
@@ -397,10 +408,14 @@ async def _compute_dashboard_inventory(db: AsyncSession) -> DashboardSummary:
     software_installations_total = int(sw_row.installs or 0)
     software_unique_titles = int(sw_row.titles or 0)
     tags_in_directory = int(await db.scalar(select(func.count()).select_from(Tag)) or 0)
-    snmp_printers_total = int(
-        await db.scalar(select(func.count()).select_from(Printer).where(Printer.source == "snmp"))
-        or 0
-    )
+    pr_inv = (
+        await db.execute(
+            select(Printer.name, Printer.snmp_model, Printer.snmp_sys_name).where(
+                Printer.source.in_(("snmp", "manual"))
+            )
+        )
+    ).all()
+    snmp_printers_total = _count_tab_printers(pr_inv)
     status_r = await db.execute(
         select(ServiceRequest.status, func.count()).group_by(ServiceRequest.status).order_by(func.count().desc())
     )
@@ -510,6 +525,29 @@ async def _compute_dashboard_inventory(db: AsyncSession) -> DashboardSummary:
         .limit(10)
     )
     top_software = [DashboardNameCount(name=str(row[0]), count=int(row[1])) for row in sw_r.all()]
+
+    fam_r = await db.execute(
+        select(InstalledSoftware.name, InstalledSoftware.computer_id).join(
+            Computer, Computer.id == InstalledSoftware.computer_id
+        )
+    )
+    browsers_ids: dict[str, set[int]] = {}
+    office_ids: dict[str, set[int]] = {}
+    for sw_name, cid in fam_r.all():
+        fam = classify_software_name(str(sw_name))
+        if fam is None:
+            continue
+        cid_i = int(cid)
+        bucket = browsers_ids if fam.category == "browser" else office_ids
+        bucket.setdefault(fam.name, set()).add(cid_i)
+    browsers = [
+        DashboardNameCount(name=n, count=len(ids))
+        for n, ids in sorted(browsers_ids.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    ]
+    office_suites = [
+        DashboardNameCount(name=n, count=len(ids))
+        for n, ids in sorted(office_ids.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    ]
 
     pe_pc = func.count(func.distinct(Peripheral.computer_id))
     pk_r = await db.execute(
@@ -658,6 +696,8 @@ async def _compute_dashboard_inventory(db: AsyncSession) -> DashboardSummary:
         ram_buckets=ram_buckets,
         top_cpu=top_cpu,
         top_software=top_software,
+        browsers=browsers,
+        office_suites=office_suites,
         top_monitors=top_monitors,
         peripheral_kinds=peripheral_kinds,
         top_peripherals=top_peripherals,
@@ -672,7 +712,7 @@ async def _compute_dashboard_inventory(db: AsyncSession) -> DashboardSummary:
 
 
 _SEGMENT_KINDS = (
-    "os|manufacturer|system_model|motherboard|ram|cpu|monitor|physical_disk|software|peripheral|peripheral_kind|hostname"
+    "os|manufacturer|system_model|motherboard|ram|cpu|monitor|physical_disk|software|software_family|peripheral|peripheral_kind|hostname"
 )
 _CATALOG_KINDS = (
     "software|peripheral|cpu|os|manufacturer|system_model|motherboard|ram|physical_disk"

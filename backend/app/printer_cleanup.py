@@ -16,13 +16,21 @@ def snmp_tab_clause():
     return Printer.source.in_(SNMP_TAB_SOURCES)
 
 
+_NETWORK_GEAR_RE = re.compile(
+    r"\bswitch\b|коммутатор|officeconnect|superstack|\brouter\b|firewall|"
+    r"access\s+point|wireless\s*controller|mikrotik|ubiquiti|"
+    r"cisco\s*(ios|catalyst|nexus|asa)|\bcatalyst\b|\bnexus\b|procurve|"
+    r"managed\s*switch|smart\s*switch|gigabit\s*switch|"
+    r"\d{2,3}[-\s]?port\s*(poe\s*)?(gigabit\s*)?switch",
+    re.I,
+)
+
 _NOISE_RE = re.compile(
     r"microsoft\s+print\s+to\s+pdf|xps\s+document\s+writer|onenote|send\s+to\s+onenote|"
     r"^fax$|pdf|anydesk|teamviewer|splashtop|rustdesk|"
     r"redirected|virtual|snagit|cutepdf|bullzip|google\s+cloud\s+print|"
     r"webex|document\s+writer|adobe\s+pdf|foxit|pdf24|do\s+pdf|"
-    r"remote\s+desktop|terminal\s+easy\s+print|ts\s+print|"
-    r"\bswitch\b|officeconnect|superstack|router|firewall|access\s+point",
+    r"remote\s+desktop|terminal\s+easy\s+print|ts\s+print",
     re.I,
 )
 
@@ -31,7 +39,18 @@ def is_noise_printer_name(name: str) -> bool:
     s = (name or "").strip()
     if not s:
         return True
-    return bool(_NOISE_RE.search(s))
+    return bool(_NOISE_RE.search(s)) or bool(_NETWORK_GEAR_RE.search(s))
+
+
+def is_network_gear_text(*parts: str | None) -> bool:
+    blob = " ".join(p for p in parts if p)
+    return bool(blob and _NETWORK_GEAR_RE.search(blob))
+
+
+def is_noise_printer_row(name: str | None, *extra: str | None) -> bool:
+    if is_noise_printer_name(name or ""):
+        return True
+    return is_network_gear_text(name, *extra)
 
 
 def printer_dedupe_key_for_ip(ip: str) -> str:
@@ -74,7 +93,7 @@ async def cleanup_printers_db(db: AsyncSession) -> PrinterCleanupResult:
     by_ip: dict[str, list[Printer]] = {}
 
     for row in rows:
-        if is_noise_printer_name(row.name):
+        if is_noise_printer_row(row.name, row.snmp_model, getattr(row, "snmp_sys_name", None)):
             noise_ids.append(row.id)
             continue
         ip = (row.ip_address or "").strip()

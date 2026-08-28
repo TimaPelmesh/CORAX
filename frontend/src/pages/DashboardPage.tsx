@@ -180,7 +180,9 @@ export function DashboardPage() {
               widgets['dist.top_monitors'] ||
               widgets['dist.by_system_model'] ||
               widgets['dist.top_cpu'] ||
-              widgets['dist.physical_disks'] ? (
+              widgets['dist.physical_disks'] ||
+              widgets['dist.browsers'] ||
+              widgets['dist.office'] ? (
                 <div className="dashboard-stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {widgets['dist.by_os'] ? (
                     <SectionCard title={t('dashboard.sections.byOs.title')} dense className="flex flex-col" bodyClassName="flex flex-1 items-center justify-center">
@@ -278,6 +280,32 @@ export function DashboardPage() {
                         byVariant={data.physical_disks_by_variant}
                         {...drillChart('physical_disk', t('dashboard.sections.physicalDisks.title'))}
                       />
+                    </SectionCard>
+                  ) : null}
+                  {widgets['dist.browsers'] ? (
+                    <SectionCard title={t('dashboard.sections.browsers.title')} dense className="flex flex-col" bodyClassName="flex flex-1 items-center justify-center">
+                      <DonutDistribution
+                          items={(data.browsers ?? []).map((c) => ({ name: c.name, count: c.count }))}
+                          emptyText={t('dashboard.sections.browsers.empty')}
+                          compact
+                          center
+                          svgSizePx={132}
+                          evenLegend
+                          {...drillChart('software_family', t('dashboard.sections.browsers.title'))}
+                        />
+                    </SectionCard>
+                  ) : null}
+                  {widgets['dist.office'] ? (
+                    <SectionCard title={t('dashboard.sections.office.title')} dense className="flex flex-col" bodyClassName="flex flex-1 items-center justify-center">
+                      <DonutDistribution
+                          items={(data.office_suites ?? []).map((c) => ({ name: c.name, count: c.count }))}
+                          emptyText={t('dashboard.sections.office.empty')}
+                          compact
+                          center
+                          svgSizePx={132}
+                          evenLegend
+                          {...drillChart('software_family', t('dashboard.sections.office.title'))}
+                        />
                     </SectionCard>
                   ) : null}
                 </div>

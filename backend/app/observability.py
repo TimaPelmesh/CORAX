@@ -20,9 +20,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.datastructures import MutableHeaders
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 request_id_var: ContextVar[str] = ContextVar("corax_request_id", default="-")
 
@@ -197,52 +197,142 @@ def get_logger(name: str = "corax") -> logging.Logger:
     return logging.getLogger(name)
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Access log + request_id context for the whole request lifecycle."""
+def _http_path(scope: Scope) -> str:
+    return scope.get("path") or ""
 
-    _SKIP_ACCESS = {"/api/v1/health", "/api/v1/health/ready", "/api/health"}
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+def _scope_state(scope: Scope):
+    state = scope.get("state")
+    if state is None:
+        state = {}
+        scope["state"] = state
+    return state
+
+
+def _state_get(state, key: str) -> str:
+    if isinstance(state, dict):
+        return (state.get(key) or "").strip()
+    return str(getattr(state, key, None) or "").strip()
+
+
+def _state_set(state, key: str, value: str) -> None:
+    if isinstance(state, dict):
+        state[key] = value
+    else:
+        setattr(state, key, value)
+
+
+def _skip_access_log(path: str) -> bool:
+    if path in {"/api/v1/health", "/api/v1/health/ready", "/api/health", "/favicon.ico"}:
+        return True
+    if path.startswith("/assets/"):
+        return True
+    name = path.rsplit("/", 1)[-1]
+    if "." in name and not path.startswith("/api"):
+        return True
+    return False
+
+
+class RequestIdMiddleware:
+    """Assign request_id on scope.state and echo X-Request-Id. Pure ASGI."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
         import uuid as _uuid
 
-        rid = (getattr(request.state, "request_id", None) or "").strip()
+        state = _scope_state(scope)
+        rid = _state_get(state, "request_id")
         if not rid:
-            rid = (request.headers.get("x-request-id") or "").strip() or _uuid.uuid4().hex
-            request.state.request_id = rid
+            header_rid = ""
+            for k, v in scope.get("headers") or []:
+                if k == b"x-request-id":
+                    header_rid = v.decode("latin-1").strip()
+                    break
+            rid = header_rid or _uuid.uuid4().hex
+            _state_set(state, "request_id", rid)
+
+        async def send_wrapper(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("X-Request-Id", rid)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+class RequestLoggingMiddleware:
+    """Access log + request_id contextvars. Pure ASGI — no BaseHTTPMiddleware TaskGroup."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        import uuid as _uuid
+
+        state = _scope_state(scope)
+        rid = _state_get(state, "request_id")
+        if not rid:
+            for k, v in scope.get("headers") or []:
+                if k == b"x-request-id":
+                    rid = v.decode("latin-1").strip()
+                    break
+            rid = rid or _uuid.uuid4().hex
+            _state_set(state, "request_id", rid)
+
         token = request_id_var.set(rid)
         started = time.perf_counter()
-        path = request.url.path or ""
+        path = _http_path(scope)
+        method = scope.get("method") or "GET"
+        client = None
+        if scope.get("client"):
+            client = scope["client"][0]
+        status_holder = {"code": 500}
+
+        async def send_wrapper(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                status_holder["code"] = int(message.get("status") or 500)
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("X-Request-Id", rid)
+            await send(message)
+
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send_wrapper)
         except Exception:
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             _LOG.exception(
                 "unhandled error",
                 extra={
-                    "method": request.method,
+                    "method": method,
                     "path": path,
                     "duration_ms": duration_ms,
-                    "client": request.client.host if request.client else None,
+                    "client": client,
                 },
             )
-            request_id_var.reset(token)
             raise
-
-        duration_ms = round((time.perf_counter() - started) * 1000, 2)
-        if path not in self._SKIP_ACCESS:
-            _LOG.info(
-                "request",
-                extra={
-                    "method": request.method,
-                    "path": path,
-                    "status": response.status_code,
-                    "duration_ms": duration_ms,
-                    "client": request.client.host if request.client else None,
-                },
-            )
-        response.headers.setdefault("X-Request-Id", rid)
-        request_id_var.reset(token)
-        return response
+        else:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            if not _skip_access_log(path):
+                _LOG.info(
+                    "request",
+                    extra={
+                        "method": method,
+                        "path": path,
+                        "status": status_holder["code"],
+                        "duration_ms": duration_ms,
+                        "client": client,
+                    },
+                )
+        finally:
+            request_id_var.reset(token)
 
 
 def install_exception_handlers(app, *, environment: str) -> None:

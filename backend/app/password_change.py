@@ -75,12 +75,13 @@ async def maybe_flag_bootstrap_password(db, user: User, password: str) -> None:
     await db.refresh(user)
 
 
-async def password_change_gate(request: Request, call_next):
+async def password_change_block_response(request: Request) -> JSONResponse | None:
+    """Return 403 JSON if this session must change password; else None (continue)."""
     path = request.url.path or ""
     if not path.startswith("/api"):
-        return await call_next(request)
+        return None
     if password_change_path_allowed(request.method, path):
-        return await call_next(request)
+        return None
 
     token = None
     authz = (request.headers.get("authorization") or "").strip()
@@ -89,15 +90,15 @@ async def password_change_gate(request: Request, call_next):
     if not token:
         token = (request.cookies.get("access_token") or "").strip() or None
     if not token:
-        return await call_next(request)
+        return None
 
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         sub = payload.get("sub")
     except JWTError:
-        return await call_next(request)
+        return None
     if not sub:
-        return await call_next(request)
+        return None
 
     from app.database import AsyncSessionLocal
 
@@ -105,6 +106,24 @@ async def password_change_gate(request: Request, call_next):
         r = await db.execute(select(User).where(User.username == sub))
         user = r.scalar_one_or_none()
         if user is None or not getattr(user, "must_change_password", False):
-            return await call_next(request)
+            return None
 
     return JSONResponse({"detail": PASSWORD_CHANGE_REQUIRED}, status_code=403)
+
+
+class PasswordChangeGateMiddleware:
+    """Pure ASGI: no BaseHTTPMiddleware TaskGroup around every request."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope, receive)
+        blocked = await password_change_block_response(request)
+        if blocked is not None:
+            await blocked(scope, receive, send)
+            return
+        await self.app(scope, receive, send)

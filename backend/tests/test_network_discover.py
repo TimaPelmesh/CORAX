@@ -19,6 +19,16 @@ def test_expand_cidr_to_slash24():
     assert all(n.prefixlen == 24 for n in nets)
 
 
+def test_accept_forwarding_gateway():
+    snap = NetworkSnmpSnapshot(ip_forwarding=True, device_type="router", is_network_gear=True)
+    assert _accept_discovered(snap)
+
+
+def test_accept_bridge_only_switch():
+    snap = NetworkSnmpSnapshot(bridge_num_ports=24, device_type="switch", is_network_gear=True)
+    assert _accept_discovered(snap)
+
+
 def test_accept_vague_snmp_gateway():
     snap = NetworkSnmpSnapshot(sys_descr="Linux OpenWrt", device_type="unknown", is_network_gear=False)
     assert _accept_discovered(snap)

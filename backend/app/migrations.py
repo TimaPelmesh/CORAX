@@ -1268,6 +1268,49 @@ def _migrate_risk_snapshots_and_acks(sync_conn) -> None:
     )
 
 
+def _migrate_risk_rule_acks(sync_conn) -> None:
+    """Allow fleet-wide ignore of a problem type (finding_id = rule:…)."""
+    if "risk_finding_acks" not in _table_names(sync_conn):
+        return
+    computer_col = next(
+        (col for col in inspect(sync_conn).get_columns("risk_finding_acks") if col["name"] == "computer_id"),
+        None,
+    )
+    if computer_col is None or computer_col.get("nullable"):
+        return
+    dialect = sync_conn.dialect.name
+    if dialect == "postgresql":
+        sync_conn.execute(text("ALTER TABLE risk_finding_acks ALTER COLUMN computer_id DROP NOT NULL"))
+        return
+    sync_conn.execute(
+        text(
+            """
+            CREATE TABLE risk_finding_acks_rule (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              finding_id VARCHAR(128) NOT NULL UNIQUE,
+              computer_id INTEGER,
+              status VARCHAR(16) NOT NULL DEFAULT 'acknowledged',
+              note VARCHAR(500),
+              user_id INTEGER,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY(computer_id) REFERENCES computers(id) ON DELETE CASCADE,
+              FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+            """
+        )
+    )
+    sync_conn.execute(text("INSERT INTO risk_finding_acks_rule SELECT * FROM risk_finding_acks"))
+    sync_conn.execute(text("DROP TABLE risk_finding_acks"))
+    sync_conn.execute(text("ALTER TABLE risk_finding_acks_rule RENAME TO risk_finding_acks"))
+    sync_conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_risk_finding_acks_finding_id ON risk_finding_acks (finding_id)")
+    )
+    sync_conn.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_risk_finding_acks_computer_id ON risk_finding_acks (computer_id)")
+    )
+
+
 _MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("2026-04-16_schema_migrations", lambda c: None),
     ("2026-04-16_tags_color", _migrate_tags_color_column),
@@ -1312,6 +1355,7 @@ _MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("2026-08-06_wiki_rag_russian_fts", _migrate_wiki_rag_russian_fts),
     ("2026-08-17_service_requests_perf_indexes", _migrate_service_request_ops_indexes),
     ("2026-08-17_risk_snapshots_and_acks", _migrate_risk_snapshots_and_acks),
+    ("2026-08-28_risk_rule_acks", _migrate_risk_rule_acks),
 ]
 
 

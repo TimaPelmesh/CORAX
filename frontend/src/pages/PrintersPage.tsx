@@ -42,6 +42,21 @@ function displaySnmpHint(row: NetworkPrinter) {
   return ''
 }
 
+function isSwitchNoise(row: NetworkPrinter) {
+  const blob = `${row.name || ''} ${row.snmp_model || ''} ${row.snmp_sys_name || ''}`
+  return /\bswitch\b|коммутатор|officeconnect|catalyst|nexus|procurve|managed\s*switch|gigabit\s*switch/i.test(
+    blob,
+  )
+}
+
+function isLabelPrinter(row: NetworkPrinter) {
+  if (row.printer_kind === 'label') return true
+  const blob = `${row.name || ''} ${row.snmp_model || ''} ${row.snmp_sys_name || ''}`
+  return /zebra|этикет|термопринтер|label\s*printer|toshiba\s*tec|\bzt\d{2,4}|godex|\btsc\b|datamax|sato|dymo/i.test(
+    blob,
+  )
+}
+
 function formatSchedulerShort(
   sched: PrinterSchedulerStatus | null,
   t: (key: MessageKey, params?: Record<string, string | number>) => string,
@@ -351,8 +366,8 @@ function PrinterNameCell({
           ({hint})
         </div>
       ) : null}
-      {row.printer_kind === 'label' ? (
-        <span className="mt-1 inline-flex rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
+      {row.printer_kind === 'label' || isLabelPrinter(row) ? (
+        <span className="mt-1 inline-flex rounded-md bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800 ring-1 ring-sky-400/40 dark:text-sky-200">
           {t('printers.kindLabel')}
         </span>
       ) : null}
@@ -507,6 +522,7 @@ export function PrintersPage() {
 
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
+      if (isSwitchNoise(r)) return false
       if (filter === 'offline') return r.poll_status === 'offline'
       if (filter === 'low_toner') return hasLowToner(r.supplies)
       if (filter === 'snmp_error') return r.snmp_status === 'error'
@@ -954,6 +970,7 @@ export function PrintersPage() {
                 filteredRows.map((r) => {
                   const low = hasLowToner(r.supplies)
                   const title = displayTitle(r)
+                  const labelPrinter = isLabelPrinter(r)
                   const snmpBadge =
                     r.snmp_status === 'ok'
                       ? { text: 'SNMP OK', cls: 'bg-[var(--color-surface-muted)] text-[var(--color-fg)] ring-[var(--color-border)]' }
@@ -971,7 +988,11 @@ export function PrintersPage() {
                   return (
                     <tr
                       key={r.id}
-                      className="app-table-row cursor-pointer"
+                      className={`app-table-row cursor-pointer ${
+                        labelPrinter
+                          ? 'bg-sky-50/90 hover:bg-sky-100/80 dark:bg-sky-950/40 dark:hover:bg-sky-950/60'
+                          : ''
+                      }`}
                       onClick={() => setDetailPrinter(r)}
                     >
                       {canEdit ? (

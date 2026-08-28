@@ -68,6 +68,12 @@ import {
 
 const RequestsStatsLineChart = lazy(() => import('./service-requests/RequestsStatsLineChart'))
 
+type EditRequestNavState = {
+  editRequest?: ServiceRequestRow
+  editReturnPath?: string
+  editReturnPage?: number
+}
+
 export function ServiceRequestsPage() {
   const t = useT()
   const toast = useToast()
@@ -610,47 +616,53 @@ export function ServiceRequestsPage() {
     toast,
   ])
 
-  useEffect(() => {
-    const raw = searchParams.get('edit')
-    if (!raw) return
-    const id = Number.parseInt(raw, 10)
-    if (!Number.isFinite(id) || id <= 0) return
-    if (loading) return
-    const fromState = (location.state as { editRequest?: ServiceRequestRow } | null)?.editRequest
-    const row = fromState?.id === id ? fromState : rows.find((r) => r.id === id)
-    if (!row) {
-      if (loading) return
-      if (rows.length) toast.error(t('requests.errors.editNotFound'))
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev)
-          next.delete('edit')
-          return next
-        },
-        { replace: true },
-      )
-      return
-    }
-    populateFormFromRequest(row)
-    setEditingRequestId(row.id)
-    setEditingReturnPath('/requests/database')
-    setEditingReturnPage(1)
-    setEditDeleteConfirm(false)
+  function stripEditQuery() {
     setSearchParams(
       (prev) => {
+        if (!prev.has('edit')) return prev
         const next = new URLSearchParams(prev)
         next.delete('edit')
         return next
       },
       { replace: true },
     )
+  }
+
+  function beginEditRequest(row: ServiceRequestRow, returnPath: string | null, returnPage: number | null) {
+    populateFormFromRequest(row)
+    setEditingRequestId(row.id)
+    setEditingReturnPath(returnPath)
+    setEditingReturnPage(returnPage)
+    setEditDeleteConfirm(false)
+  }
+
+  useEffect(() => {
+    const raw = searchParams.get('edit')
+    if (!raw) return
+    const id = Number.parseInt(raw, 10)
+    if (!Number.isFinite(id) || id <= 0) return
+    const navState = (location.state as EditRequestNavState | null) ?? null
+    const fromState = navState?.editRequest?.id === id ? navState.editRequest : undefined
+    const row = fromState ?? (loading ? undefined : rows.find((r) => r.id === id))
+    if (!row) {
+      if (loading) return
+      if (rows.length) toast.error(t('requests.errors.editNotFound'))
+      stripEditQuery()
+      return
+    }
+    beginEditRequest(
+      row,
+      navState?.editReturnPath ?? (location.pathname === '/requests' ? '/requests/database' : location.pathname),
+      navState?.editReturnPage ?? dbPage,
+    )
+    stripEditQuery()
     if (location.pathname !== '/requests') navigate('/requests', { replace: true })
     window.requestAnimationFrame(() => {
       const el = getAppScrollContainer()
       if (el) el.scrollTop = 0
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, rows, searchParams, location.state])
+  }, [loading, rows, searchParams, location.state, location.pathname])
 
   const loadTemplates = useCallback(async () => {
     setTplLoading(true)
@@ -855,12 +867,14 @@ export function ServiceRequestsPage() {
 
   function openRequestForEdit(t: ServiceRequestRow) {
     captureListScrollForRestore(t.id, location.pathname)
-    populateFormFromRequest(t)
-    setEditingRequestId(t.id)
-    setEditingReturnPath(location.pathname)
-    setEditingReturnPage(dbPage)
-    setEditDeleteConfirm(false)
-    navigate('/requests')
+    beginEditRequest(t, location.pathname, dbPage)
+    navigate(`/requests?edit=${t.id}`, {
+      state: {
+        editRequest: t,
+        editReturnPath: location.pathname,
+        editReturnPage: dbPage,
+      } satisfies EditRequestNavState,
+    })
     window.requestAnimationFrame(() => {
       const el = getAppScrollContainer()
       if (el) el.scrollTop = 0
@@ -2223,7 +2237,7 @@ export function ServiceRequestsPage() {
                         <tr
                           key={row.id}
                           data-request-id={row.id}
-                          className="border-b border-[var(--color-border)]/80 bg-[var(--color-surface)] align-top transition hover:bg-[var(--color-surface-muted)]"
+                          className="cursor-pointer border-b border-[var(--color-border)]/80 bg-[var(--color-surface)] align-top transition hover:bg-[var(--color-surface-muted)]"
                           onClick={() => openRequestForEdit(row)}
                           role="button"
                           title={t('requests.database.table.editTitle')}

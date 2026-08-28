@@ -11,6 +11,13 @@ from app.network_classify import (
 )
 
 
+def test_classify_hp_officeconnect_is_switch_not_printer():
+    c = classify_device("HP OfficeConnect 1920 24G Switch")
+    assert c.device_type == "switch"
+    assert c.is_network_gear
+    assert c.device_type != "printer"
+
+
 def test_classify_switch():
     c = classify_device("HP J9776A 2530-48G Switch, revision YA.16.11")
     assert c.is_network_gear
@@ -93,6 +100,18 @@ def test_classify_ats_voip():
 def test_classify_unifi_ap_not_bare_unifi_controller():
     c = classify_device("UniFi AP AC Pro")
     assert c.device_type == "ap"
+
+
+def test_classify_forwarding_without_sysdescr():
+    c = classify_device(None, hints=ClassifyHints(ip_forwarding=True))
+    assert c.device_type == "router"
+    assert c.is_network_gear
+
+
+def test_classify_bridge_ports_without_sysdescr():
+    c = classify_device(None, hints=ClassifyHints(ethernet_ports=24, has_bridge_fdb=True))
+    assert c.device_type == "switch"
+    assert c.is_network_gear
 
 
 def test_classify_by_bridge_hints():

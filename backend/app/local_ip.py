@@ -79,20 +79,23 @@ def local_ipv4_addresses() -> set[ipaddress.IPv4Address]:
     return out
 
 
+# docker0 + typical Compose / Docker Desktop pools. 172.16.0.0/16 is often a real office VLAN — keep it.
+_DOCKER_BRIDGE_POOLS = tuple(
+    ipaddress.ip_network(f"172.{octet}.0.0/16") for octet in range(17, 32)
+) + (
+    ipaddress.ip_network("192.168.65.0/24"),  # Docker Desktop Linux VM
+)
+
+
 def _is_likely_container_bridge(addr: ipaddress.IPv4Address) -> bool:
     """Docker default/compose bridges — not reachable from LAN PCs."""
-    # Classic docker0 and typical compose bridge pools.
-    for net in (
-        "172.17.0.0/16",
-        "172.18.0.0/16",
-        "172.19.0.0/16",
-        "172.20.0.0/16",
-        "172.21.0.0/16",
-        "172.22.0.0/16",
-        "172.23.0.0/16",
-        "172.24.0.0/16",
-    ):
-        if addr in ipaddress.ip_network(net):
+    return any(addr in net for net in _DOCKER_BRIDGE_POOLS)
+
+
+def is_likely_container_network(net: ipaddress.IPv4Network) -> bool:
+    """True if this prefix is a Docker/compose/Desktop bridge, not a site LAN."""
+    for pool in _DOCKER_BRIDGE_POOLS:
+        if net == pool or net.subnet_of(pool):
             return True
     return False
 
@@ -136,6 +139,148 @@ def advertise_lan_ipv4() -> str | None:
         if host:
             return host
     return pick_primary_lan_ipv4()
+
+
+def parse_cidr_tokens(raw: str | None) -> list[str]:
+    if not raw or not str(raw).strip():
+        return []
+    return [p.strip() for p in re.split(r"[\s,;]+", str(raw).strip()) if p.strip()]
+
+
+def slash24_from_ip(ip: str | ipaddress.IPv4Address) -> ipaddress.IPv4Network | None:
+    host = str(ip).split("/")[0].split(":")[0].strip()
+    addr = _private_ipv4(host)
+    if not addr or _is_likely_container_bridge(addr):
+        return None
+    return ipaddress.ip_network(f"{addr}/24", strict=False)
+
+
+def host_lan_cidrs_for_scan() -> list[str]:
+    """Site LAN prefixes of the machine running this code (host during docker:up)."""
+    nets: set[ipaddress.IPv4Network] = set()
+    for addr in list_lan_ipv4(include_container_bridges=False):
+        n = slash24_from_ip(addr)
+        if n:
+            nets.add(n)
+    for net in local_ipv4_networks():
+        if is_likely_container_network(net):
+            continue
+        for unit in _normalize_scan_net(net):
+            if not is_likely_container_network(unit):
+                nets.add(unit)
+    return [str(n) for n in sorted(nets, key=lambda n: int(n.network_address))]
+
+
+def _env_scan_cidrs() -> list[str]:
+    from app.config import settings
+
+    out: list[str] = []
+    for raw in (
+        getattr(settings, "corax_scan_networks", "") or "",
+        getattr(settings, "corax_host_lan_networks", "") or "",
+    ):
+        out.extend(parse_cidr_tokens(raw))
+    adv = advertise_lan_ipv4()
+    if adv:
+        out.append(adv if "/" in str(adv) else str(adv))
+    return out
+
+
+def _add_scan_units(
+    networks: set[ipaddress.IPv4Network],
+    net: ipaddress.IPv4Network,
+) -> list[ipaddress.IPv4Network]:
+    added: list[ipaddress.IPv4Network] = []
+    if not isinstance(net, ipaddress.IPv4Network) or not net.is_private:
+        return added
+    if is_likely_container_network(net):
+        return added
+    for unit in _normalize_scan_net(net):
+        if is_likely_container_network(unit):
+            continue
+        if unit not in networks:
+            networks.add(unit)
+            added.append(unit)
+    return added
+
+
+def resolve_lan_scan_networks(
+    *,
+    cidr_list: list[str] | None = None,
+    hint_ips: list[str] | None = None,
+    max_subnets: int = 32,
+) -> tuple[list[ipaddress.IPv4Network], list[str]]:
+    """
+    LAN prefixes to SNMP-scan.
+
+    Manual CIDR wins. Otherwise merge: env/host LAN (docker:up), advertise IP,
+    inventory hints, OS interfaces — always dropping Docker 172.17–31 / 192.168.65.
+    """
+    reasons: list[str] = []
+    networks: set[ipaddress.IPv4Network] = set()
+
+    manual_raw = [c.strip() for c in (cidr_list or []) if c and str(c).strip()]
+    if manual_raw:
+        for raw in manual_raw:
+            try:
+                net = ipaddress.ip_network(raw, strict=False)
+            except ValueError:
+                continue
+            if isinstance(net, ipaddress.IPv4Network):
+                _add_scan_units(networks, net)
+        if networks:
+            ordered = sorted(networks, key=lambda n: int(n.network_address))[: max(1, max_subnets)]
+            reasons.append("ручной CIDR: " + ", ".join(str(n) for n in ordered[:12]))
+            return ordered, reasons
+
+    env_added: list[str] = []
+    for raw in _env_scan_cidrs():
+        token = raw.strip()
+        net: ipaddress.IPv4Network | None = None
+        try:
+            net = ipaddress.ip_network(token if "/" in token else f"{token}/24", strict=False)
+        except ValueError:
+            net = slash24_from_ip(token)
+        if net is not None:
+            for unit in _add_scan_units(networks, net):
+                env_added.append(str(unit))
+    if env_added:
+        reasons.append("LAN хоста: " + ", ".join(list(dict.fromkeys(env_added))[:8]))
+
+    hint_added: list[str] = []
+    for ip in hint_ips or []:
+        n = slash24_from_ip(ip)
+        if n and n not in networks:
+            networks.add(n)
+            hint_added.append(str(n))
+    if hint_added:
+        reasons.append("инвентарь: " + ", ".join(list(dict.fromkeys(hint_added))[:8]))
+
+    scope = discover_corax_network_scope(max_subnets=max(8, max_subnets))
+    os_added: list[str] = []
+    docker_seen: list[str] = []
+    for n in scope.networks:
+        if is_likely_container_network(n):
+            docker_seen.append(str(n))
+            continue
+        if n not in networks:
+            networks.add(n)
+            os_added.append(str(n))
+    if os_added:
+        reasons.append("интерфейсы ОС: " + ", ".join(os_added[:6]))
+    reasons.extend(scope.reasons)
+    if docker_seen:
+        reasons.append("пропущен Docker-мост: " + ", ".join(list(dict.fromkeys(docker_seen))[:4]))
+    if not networks:
+        reasons.append(
+            "нет LAN для SNMP: процесс в контейнере видит только Docker. "
+            "Задайте CIDR в настройках сети, CORAX_ADVERTISE_HOST или "
+            "CORAX_HOST_LAN_NETWORKS (подставляется при npm run docker:up)."
+        )
+        return [], reasons
+
+    ordered = sorted(networks, key=lambda n: int(n.network_address))[: max(1, max_subnets)]
+    return ordered, reasons
 
 
 def _decode_cmd_out(blob: bytes) -> str:
@@ -421,37 +566,57 @@ def discover_corax_network_scope(*, max_subnets: int = 64) -> CoraxNetworkScope:
     home: set[ipaddress.IPv4Network] = set()
 
     server_addrs = [a for a in local_ipv4_addresses() if not str(a).startswith("169.254.")]
+    docker_addrs = [a for a in server_addrs if _is_likely_container_bridge(a)]
+    lan_addrs = [a for a in server_addrs if not _is_likely_container_bridge(a)]
     for net in local_ipv4_networks():
         if str(net.network_address).startswith("169.254."):
             continue
+        if is_likely_container_network(net):
+            continue
         for unit in _normalize_scan_net(net):
+            if is_likely_container_network(unit):
+                continue
             home.add(unit)
             networks.add(unit)
-    for addr in server_addrs:
-        home.add(_as_slash24(addr))
-        networks.add(_as_slash24(addr))
+    for addr in lan_addrs:
+        unit = _as_slash24(addr)
+        if is_likely_container_network(unit):
+            continue
+        home.add(unit)
+        networks.add(unit)
     if home:
         reasons.append(
             "сервер CORAX: " + ", ".join(sorted(str(n) for n in home)[:6])
         )
+    elif docker_addrs:
+        reasons.append(
+            "сервер CORAX в Docker: " + ", ".join(str(a) for a in docker_addrs[:4])
+        )
 
-    gws = default_gateway_ipv4()
+    gws = [g for g in default_gateway_ipv4() if not _is_likely_container_bridge(g)]
     for gw in gws:
         n = _as_slash24(gw)
-        networks.add(n)
+        if not is_likely_container_network(n):
+            networks.add(n)
     if gws:
         reasons.append("шлюз: " + ", ".join(str(g) for g in gws))
 
-    dns = dns_server_ipv4()
+    dns = [d for d in dns_server_ipv4() if not _is_likely_container_bridge(d)]
     for d in dns:
-        networks.add(_as_slash24(d))
+        n = _as_slash24(d)
+        if not is_likely_container_network(n):
+            networks.add(n)
     if dns:
         reasons.append("DNS LAN: " + ", ".join(str(d) for d in dns[:4]))
 
     routed = routed_private_networks()
     routed_added = 0
     for net in routed:
+        if is_likely_container_network(net):
+            continue
         for unit in _normalize_scan_net(net):
+            if is_likely_container_network(unit):
+                continue
             if unit not in networks:
                 routed_added += 1
             networks.add(unit)
@@ -459,14 +624,16 @@ def discover_corax_network_scope(*, max_subnets: int = 64) -> CoraxNetworkScope:
         reasons.append(f"маршруты ОС → +{routed_added} подсетей")
 
     # Evidence-based neighbor nets: only /24 with real ARP/neigh activity
-    arp = arp_table_ipv4()
+    arp = [a for a in arp_table_ipv4() if not _is_likely_container_bridge(a)]
     arp_counts: dict[ipaddress.IPv4Network, int] = {}
     for addr in arp:
         n = _as_slash24(addr)
+        if is_likely_container_network(n):
+            continue
         arp_counts[n] = arp_counts.get(n, 0) + 1
     arp_added = 0
     for n, cnt in sorted(arp_counts.items(), key=lambda kv: (-kv[1], int(kv[0].network_address))):
-        if n in home:
+        if n in home or is_likely_container_network(n):
             continue
         # Neighbor VLAN/subnet: any ARP/neigh activity, or gateway/DNS lives there
         gw_here = any(gw in n for gw in gws)
@@ -486,7 +653,7 @@ def discover_corax_network_scope(*, max_subnets: int = 64) -> CoraxNetworkScope:
         density = -arp_counts.get(n, 0)
         return (is_home, density, int(n.network_address))
 
-    ordered = sorted(networks, key=sort_key)[: max(1, max_subnets)]
+    ordered = sorted(networks, key=sort_key)[: max(0, max_subnets)]
     return CoraxNetworkScope(
         networks=tuple(ordered),
         reasons=tuple(reasons),

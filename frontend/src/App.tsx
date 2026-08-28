@@ -45,17 +45,8 @@ const SettingsTagsPage = lazy(() =>
 const SettingsCategoriesPage = lazy(() =>
   import('./pages/SettingsCategoriesPage').then((module) => ({ default: module.SettingsCategoriesPage })),
 )
-const RequestsCreatePage = lazy(() =>
-  import('./pages/service-requests').then((module) => ({ default: module.RequestsCreatePage })),
-)
-const RequestsDatabasePage = lazy(() =>
-  import('./pages/service-requests').then((module) => ({ default: module.RequestsDatabasePage })),
-)
-const RequestsStatsPage = lazy(() =>
-  import('./pages/service-requests').then((module) => ({ default: module.RequestsStatsPage })),
-)
-const RequestsTemplatesPage = lazy(() =>
-  import('./pages/service-requests').then((module) => ({ default: module.RequestsTemplatesPage })),
+const ServiceRequestsPage = lazy(() =>
+  import('./pages/ServiceRequestsPage').then((module) => ({ default: module.ServiceRequestsPage })),
 )
 const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })))
 const SettingsBitrix24Page = lazy(() =>
@@ -153,10 +144,12 @@ export default function App() {
         <Route path="computers" element={<ComputersPage />} />
         <Route path="printers" element={<PrintersPage />} />
         <Route path="network" element={<NetworkPage />} />
-        <Route path="requests" element={<RequestsCreatePage />} />
-        <Route path="requests/database" element={<RequestsDatabasePage />} />
-        <Route path="requests/stats" element={<RequestsStatsPage />} />
-        <Route path="requests/templates" element={<RequestsTemplatesPage />} />
+        <Route path="requests" element={<ServiceRequestsPage />}>
+          <Route index element={null} />
+          <Route path="database" element={null} />
+          <Route path="stats" element={null} />
+          <Route path="templates" element={null} />
+        </Route>
         <Route path="users" element={<UsersPage />} />
         <Route path="settings" element={<SettingsIndexPage />} />
         <Route path="settings/tags" element={<SettingsTagsPage />} />

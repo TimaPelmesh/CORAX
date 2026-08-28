@@ -346,7 +346,7 @@ export function PrinterDetailModal({
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {row.printer_kind === 'label' ? (
-                  <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 ring-1 ring-amber-500/30 dark:text-amber-200">
+                  <span className="rounded-md bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800 ring-1 ring-sky-400/40 dark:text-sky-200">
                     {t('printers.kindLabel')}
                   </span>
                 ) : null}

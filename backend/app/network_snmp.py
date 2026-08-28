@@ -7,7 +7,15 @@ from typing import Any
 
 from puresnmp import Client, ObjectIdentifier, V2C
 
-from app.network_classify import build_hints_from_interfaces, classify_device, normalize_mac
+try:
+    from puresnmp import V1 as SnmpV1
+except ImportError:  # pragma: no cover
+    try:
+        from puresnmp.credentials import V1 as SnmpV1
+    except ImportError:
+        SnmpV1 = None
+
+from app.network_classify import ClassifyHints, build_hints_from_interfaces, classify_device, normalize_mac
 
 OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 OID_SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
@@ -289,35 +297,103 @@ async def probe_network_snmp(
     community: str = "public",
     timeout: float = 1.2,
     port: int = 161,
+    allow_v1: bool = False,
 ) -> NetworkSnmpSnapshot:
-    """Fast discovery probe: sysDescr/sysName/sysObjectID only."""
-    snap = NetworkSnmpSnapshot()
-    client = Client(ip, V2C(community), port=port)
-    try:
+    """Fast discovery probe: identity first, then forwarding/bridge fallback."""
+    snap = await _probe_network_snmp_with(ip, V2C(community), timeout=timeout, port=port)
+    if probe_has_signal(snap):
+        return snap
+    if allow_v1 and SnmpV1 is not None:
         try:
-            snap.sys_descr = str(await _safe_get(client, OID_SYS_DESCR, timeout) or "").strip() or None
-        except Exception as e:
-            snap.error = f"SNMP: {_short_error(e)}"
-            return snap
-        try:
-            snap.sys_name = str(await _safe_get(client, OID_SYS_NAME, timeout) or "").strip() or None
+            snap_v1 = await _probe_network_snmp_with(ip, SnmpV1(community), timeout=timeout, port=port)
         except Exception:
-            pass
+            return snap
+        if probe_has_signal(snap_v1):
+            return snap_v1
+        if snap_v1.error and not snap.error:
+            return snap_v1
+    return snap
+
+
+def probe_has_signal(snap: NetworkSnmpSnapshot) -> bool:
+    if snap.sys_descr or snap.sys_name or snap.sys_object_id:
+        return True
+    if snap.ip_forwarding is True:
+        return True
+    if snap.bridge_num_ports and snap.bridge_num_ports > 0:
+        return True
+    return bool(snap.is_network_gear)
+
+
+async def _probe_network_snmp_with(
+    ip: str,
+    credentials: Any,
+    *,
+    timeout: float,
+    port: int,
+) -> NetworkSnmpSnapshot:
+    snap = NetworkSnmpSnapshot()
+    client = Client(ip, credentials, port=port)
+    identity_timeout = max(0.4, min(timeout, 1.2))
+    hint_timeout = max(0.35, min(timeout, 0.8))
+    last_error: str | None = None
+
+    async def read_text(oid: str) -> str | None:
+        nonlocal last_error
         try:
-            oid_raw = await _safe_get(client, OID_SYS_OBJECT_ID, timeout)
+            raw = await _safe_get(client, oid, identity_timeout)
+        except Exception as exc:
+            last_error = _short_error(exc)
+            return None
+        text = str(raw or "").strip()
+        return text or None
+
+    try:
+        snap.sys_descr = await read_text(OID_SYS_DESCR)
+        snap.sys_name = await read_text(OID_SYS_NAME)
+        try:
+            oid_raw = await _safe_get(client, OID_SYS_OBJECT_ID, identity_timeout)
             if oid_raw is not None:
                 snap.sys_object_id = str(oid_raw).strip().lstrip(".") or None
-        except Exception:
-            pass
+        except Exception as exc:
+            last_error = last_error or _short_error(exc)
+
         cls = classify_device(snap.sys_descr, sys_object_id=snap.sys_object_id, sys_name=snap.sys_name)
+        weak_identity = not (snap.sys_descr or snap.sys_name)
+        need_hints = weak_identity or (not cls.is_network_gear and cls.device_type in {"unknown", "host"})
+        if need_hints:
+            try:
+                fwd = await _safe_get(client, OID_IP_FORWARDING, hint_timeout)
+                if fwd is not None:
+                    snap.ip_forwarding = int(fwd) == 1
+            except (TypeError, ValueError, Exception):
+                pass
+            try:
+                ports = await _safe_get(client, OID_DOT1D_BASE_NUM_PORTS, hint_timeout)
+                if ports is not None:
+                    snap.bridge_num_ports = int(ports)
+            except (TypeError, ValueError, Exception):
+                pass
+            if snap.ip_forwarding is not None or snap.bridge_num_ports:
+                cls = classify_device(
+                    snap.sys_descr,
+                    sys_object_id=snap.sys_object_id,
+                    sys_name=snap.sys_name,
+                    hints=ClassifyHints(
+                        ethernet_ports=max(0, int(snap.bridge_num_ports or 0)),
+                        has_bridge_fdb=bool(snap.bridge_num_ports and snap.bridge_num_ports > 0),
+                        ip_forwarding=snap.ip_forwarding,
+                    ),
+                )
+
         snap.device_type = cls.device_type
         snap.vendor = cls.vendor
         snap.model = cls.model
         snap.classify_confidence = cls.confidence
         snap.classify_signals = list(cls.signals)
         snap.is_network_gear = cls.is_network_gear
-        if not snap.sys_descr and not snap.sys_name:
-            snap.error = "SNMP: пустой ответ"
+        if not probe_has_signal(snap):
+            snap.error = last_error or "SNMP: пустой ответ"
     except Exception as e:
         snap.error = f"SNMP: {_short_error(e)}"
     return snap

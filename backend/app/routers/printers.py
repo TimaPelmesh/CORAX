@@ -13,13 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_editor_or_superuser, get_current_user
 from app.database import get_db
 from app.models import Computer, Printer, User
-from app.printer_cleanup import cleanup_printers_db, is_noise_printer_name, printer_dedupe_key_for_ip, snmp_tab_clause
+from app.printer_cleanup import cleanup_printers_db, is_noise_printer_name, is_noise_printer_row, printer_dedupe_key_for_ip, snmp_tab_clause
 from app.printer_poll import _discovery_concurrency, poll_single_printer, run_printer_poll_cycle
 from app.printer_poll_config import get_effective_printer_poll_config, get_printer_poll_config_row
+from app.network_poll_config import get_effective_network_poll_config
 from app.printer_scheduler import printer_poll_scheduler
 from app.printer_snmp_discover import discover_snmp_printers
 from app.search_index import delete_search_document, index_record
-import re
 
 router = APIRouter(prefix="/printers", tags=["printers"])
 
@@ -315,12 +315,16 @@ async def discover_printers_snmp(
     db: AsyncSession = Depends(get_db),
 ):
     cfg = await get_effective_printer_poll_config(db)
+    net_cfg = await get_effective_network_poll_config(db)
+    extra_comms = [net_cfg.snmp_community] if net_cfg.snmp_community else []
     r = await discover_snmp_printers(
         db,
         community=cfg.snmp_community,
+        communities=extra_comms,
         timeout=min(2.0, max(0.8, cfg.snmp_timeout_seconds)),
-        total_budget_seconds=30.0,
+        total_budget_seconds=120.0,
         concurrency=_discovery_concurrency(cfg),
+        cidr_list=net_cfg.cidr_list or None,
     )
     return PrinterSnmpDiscoveryOut(
         scanned=r.scanned,
@@ -440,6 +444,8 @@ async def list_printers(
         rows = (await db.execute(stmt.limit(limit))).all()
         out: list[PrinterMapItem] = []
         for row in rows:
+            if is_noise_printer_row(row.name, row.snmp_model):
+                continue
             supplies = _parse_supplies(row.supplies_json)
             out.append(
                 PrinterMapItem(
@@ -456,6 +462,11 @@ async def list_printers(
         return out
 
     rows = (await db.execute(stmt.limit(limit))).scalars().all()
+    rows = [
+        r
+        for r in rows
+        if not is_noise_printer_row(r.name, r.snmp_model, getattr(r, "snmp_sys_name", None))
+    ]
     pc_ids = {r.computer_id for r in rows if r.computer_id}
     hosts = await _hostnames_map(db, pc_ids)
     return [_printer_out(r, hosts.get(r.computer_id) if r.computer_id else None) for r in rows]

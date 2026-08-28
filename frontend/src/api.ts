@@ -29,7 +29,7 @@ const WIKIRAG_LM_TIMEOUT_MS = 330_000
 const WIKIRAG_IMPORT_TIMEOUT_MS = 120_000
 
 function requestTimeoutMessage(path: string): string {
-  if (path.includes('/wiki-rag/chat')) {
+  if (path.includes('/wiki-rag/chat') || path.includes('/risks/ai-insights')) {
     return (
       'Модель не ответила вовремя (лимит ~5 мин). Проверьте LM Studio / Ollama: модель загружена, ' +
       'таймаут увеличен; для лёгких моделей ответ обычно 30–90 с.'
@@ -65,6 +65,29 @@ function getCookie(name: string): string | null {
 function shouldAttachCsrf(method?: string): boolean {
   const m = (method ?? 'GET').toUpperCase()
   return m === 'POST' || m === 'PUT' || m === 'PATCH' || m === 'DELETE'
+}
+
+function formatApiDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (!item || typeof item !== 'object' || !('msg' in item)) return null
+        const msg = String((item as { msg: unknown }).msg)
+        const loc = Array.isArray((item as { loc?: unknown }).loc)
+          ? (item as { loc: unknown[] }).loc.filter((part) => part !== 'body' && part !== 'query').join('.')
+          : ''
+        return loc ? `${loc}: ${msg}` : msg
+      })
+      .filter((part): part is string => Boolean(part))
+    if (parts.length) return parts.join('; ')
+  }
+  if (detail == null) return ''
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
 }
 
 async function request<T>(
@@ -116,10 +139,10 @@ async function request<T>(
     const parsed = await res.json().catch(() => null)
     const err = parsed && typeof parsed === 'object' ? parsed : null
     const detail =
-      (err as { detail?: string } | null)?.detail ??
+      (err as { detail?: unknown } | null)?.detail ??
       (parsed == null ? await res.text().catch(() => '') : '') ??
       res.statusText
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    throw new Error(formatApiDetail(detail) || res.statusText)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -620,6 +643,7 @@ export type DashboardSegmentKind =
   | 'monitor'
   | 'physical_disk'
   | 'software'
+  | 'software_family'
   | 'peripheral'
   | 'peripheral_kind'
   | 'hostname'
@@ -684,6 +708,8 @@ export type DashboardSummary = {
   ram_buckets: DashboardRamBucket[]
   top_cpu: DashboardNameCount[]
   top_software: DashboardNameCount[]
+  browsers?: DashboardNameCount[]
+  office_suites?: DashboardNameCount[]
   top_monitors: DashboardNameCount[]
   peripheral_kinds: DashboardPeripheralKind[]
   top_peripherals: DashboardNameCount[]
@@ -734,6 +760,7 @@ export type RiskFinding = {
   evidence?: string | null
   status?: 'open' | 'acknowledged' | 'ignored'
   action_note?: string | null
+  rule?: string
 }
 
 export type RiskComputer = {
@@ -774,8 +801,34 @@ export type RiskOverview = {
   findings_acknowledged?: number
   findings_ignored?: number
   categories: RiskCategorySummary[]
+  problem_groups?: RiskProblemGroup[]
   computers: RiskComputer[]
   findings: RiskFinding[]
+}
+
+export type RiskProblemComputer = {
+  id: number
+  hostname: string
+  ip_address?: string | null
+  os_name?: string | null
+  evidence?: string | null
+  finding_id: string
+  status?: 'open' | 'acknowledged' | 'ignored'
+}
+
+export type RiskProblemGroup = {
+  rule: string
+  finding_id: string
+  category: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  score: number
+  title: string
+  description: string
+  recommendation: string
+  affected_computers: number
+  finding_count: number
+  status?: 'open' | 'acknowledged' | 'ignored'
+  computers: RiskProblemComputer[]
 }
 
 export type RiskHistoryPoint = {
@@ -1177,6 +1230,7 @@ export const api = {
     request<RiskAiInsight>(`${API_PREFIX}/risks/ai-insights`, {
       method: 'POST',
       json: body,
+      timeout_ms: WIKIRAG_LM_TIMEOUT_MS,
     }),
 
   softwareCatalog: (q?: string, limit?: number) => {

@@ -2,12 +2,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import ipaddress
 import time
-import uuid
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import JSONResponse
 from sqlalchemy import func, select
@@ -17,13 +16,14 @@ from app.database import AsyncSessionLocal, Base, DiagramsBase, DiagramsSessionL
 from app.auth import hash_password
 from app.migrations import apply_diagrams_migrations, apply_migrations, apply_warehouse_migrations
 from app.observability import (
+    RequestIdMiddleware,
     RequestLoggingMiddleware,
     get_logger,
     install_exception_handlers,
     setup_logging,
 )
 from app.security_headers import SecurityHeadersMiddleware
-from app.password_change import bootstrap_must_change_password, password_change_gate
+from app.password_change import bootstrap_must_change_password, PasswordChangeGateMiddleware
 from app.warehouse_models import StockItem, StockMovement, WarehouseRoom  # noqa: F401 — register ORM metadata
 from app.models import ServiceRequestTemplate, Tag, User
 from app.routers import (
@@ -59,6 +59,19 @@ from app.routers import (
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _PROJECT_ROOT = _BACKEND_DIR.parent
 _FRONTEND_DIST = _PROJECT_ROOT / "frontend" / "dist"
+_INDEX_HTML_CACHE: tuple[float, bytes] | None = None
+
+
+def _cached_index_html() -> Response | None:
+    """Serve index.html from memory so SPA navigations do not open a new FD each time."""
+    global _INDEX_HTML_CACHE
+    path = _FRONTEND_DIST / "index.html"
+    if not path.is_file():
+        return None
+    mtime = path.stat().st_mtime
+    if _INDEX_HTML_CACHE is None or _INDEX_HTML_CACHE[0] != mtime:
+        _INDEX_HTML_CACHE = (mtime, path.read_bytes())
+    return Response(content=_INDEX_HTML_CACHE[1], media_type="text/html; charset=utf-8")
 
 setup_logging(
     environment=settings.environment,
@@ -345,61 +358,71 @@ _CSRF_EXEMPT_PREFIXES = (
     "/api/ticket-handler/public/",
 )
 
-@app.middleware("http")
-async def request_id(request: Request, call_next):
-    rid = (request.headers.get("x-request-id") or "").strip()
-    if not rid:
-        rid = uuid.uuid4().hex
-    request.state.request_id = rid
-    resp = await call_next(request)
-    resp.headers["X-Request-Id"] = rid
-    return resp
+
+class CsrfAndOriginMiddleware:
+    """Cookie CSRF + agent payload cap. Pure ASGI (no BaseHTTPMiddleware)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope, receive)
+        if request.method.upper() == "POST" and request.url.path in (
+            "/api/v1/agent/inventory",
+            "/api/agent/inventory",
+        ):
+            cl = request.headers.get("content-length")
+            if cl and cl.isdigit() and int(cl) > int(settings.max_agent_payload_bytes):
+                await JSONResponse({"detail": "Agent payload too large"}, status_code=413)(
+                    scope, receive, send
+                )
+                return
+
+        if request.method.upper() not in _UNSAFE_METHODS:
+            await self.app(scope, receive, send)
+            return
+        path = request.url.path or ""
+        if not (path.startswith("/api/") or path.startswith("/api/v1/")):
+            await self.app(scope, receive, send)
+            return
+        for pfx in _CSRF_EXEMPT_PREFIXES:
+            if path.startswith(pfx):
+                await self.app(scope, receive, send)
+                return
+
+        authz = (request.headers.get("authorization") or "").strip().lower()
+        if authz.startswith("bearer "):
+            await self.app(scope, receive, send)
+            return
+
+        if not request.cookies.get("access_token"):
+            await self.app(scope, receive, send)
+            return
+
+        origin = (request.headers.get("origin") or "").strip()
+        if origin and not _csrf_origin_allowed(origin, request):
+            await JSONResponse({"detail": "CSRF: origin not allowed"}, status_code=403)(
+                scope, receive, send
+            )
+            return
+
+        csrf_cookie = (request.cookies.get("csrf_token") or "").strip()
+        csrf_header = (request.headers.get("x-csrf-token") or "").strip()
+        if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+            await JSONResponse({"detail": "CSRF token missing or invalid"}, status_code=403)(
+                scope, receive, send
+            )
+            return
+
+        await self.app(scope, receive, send)
 
 
-@app.middleware("http")
-async def csrf_and_origin_guard(request: Request, call_next):
-    # Basic payload guard for the agent ingest endpoint.
-    if request.method.upper() == "POST" and request.url.path in ("/api/v1/agent/inventory", "/api/agent/inventory"):
-        cl = request.headers.get("content-length")
-        if cl and cl.isdigit():
-            n = int(cl)
-            if n > int(settings.max_agent_payload_bytes):
-                raise HTTPException(status_code=413, detail="Agent payload too large")
-
-    # CSRF is relevant only for browser cookie-based auth on unsafe methods.
-    if request.method.upper() not in _UNSAFE_METHODS:
-        return await call_next(request)
-    path = request.url.path or ""
-    if not (path.startswith("/api/") or path.startswith("/api/v1/")):
-        return await call_next(request)
-    for pfx in _CSRF_EXEMPT_PREFIXES:
-        if path.startswith(pfx):
-            return await call_next(request)
-
-    authz = (request.headers.get("authorization") or "").strip().lower()
-    if authz.startswith("bearer "):
-        # Bearer auth is not vulnerable to CSRF in the same way as cookies.
-        return await call_next(request)
-
-    if not request.cookies.get("access_token"):
-        return await call_next(request)
-
-    origin = (request.headers.get("origin") or "").strip()
-    if origin and not _csrf_origin_allowed(origin, request):
-        # JSONResponse: HTTPException из BaseHTTPMiddleware на части стеков даёт 500 вместо 403.
-        return JSONResponse({"detail": "CSRF: origin not allowed"}, status_code=403)
-
-    csrf_cookie = (request.cookies.get("csrf_token") or "").strip()
-    csrf_header = (request.headers.get("x-csrf-token") or "").strip()
-    if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
-        return JSONResponse({"detail": "CSRF token missing or invalid"}, status_code=403)
-
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def password_change_required_gate(request: Request, call_next):
-    return await password_change_gate(request, call_next)
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(CsrfAndOriginMiddleware)
+app.add_middleware(PasswordChangeGateMiddleware)
 
 
 for base in ("/api/v1", "/api"):
@@ -480,9 +503,9 @@ async def health_ready():
 
 @app.get("/")
 async def root_page():
-    index = _FRONTEND_DIST / "index.html"
-    if index.is_file():
-        return FileResponse(index)
+    cached = _cached_index_html()
+    if cached is not None:
+        return cached
     return {
         "service": "Инвенторизация API",
         "docs": "/docs",
@@ -514,4 +537,7 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").is_file():
         f = root / candidate
         if f.is_file():
             return FileResponse(f)
-        return FileResponse(root / "index.html")
+        cached = _cached_index_html()
+        if cached is not None:
+            return cached
+        raise HTTPException(status_code=404, detail="Not Found")

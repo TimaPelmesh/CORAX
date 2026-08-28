@@ -18,6 +18,8 @@ from app.risk_schemas import (
     RiskComputer,
     RiskFinding,
     RiskOverview,
+    RiskProblemComputer,
+    RiskProblemGroup,
 )
 
 
@@ -35,6 +37,18 @@ _OVERVIEW_CACHE_SECONDS = 30.0
 _SNAPSHOT_MIN_INTERVAL = timedelta(hours=1)
 _SNAPSHOT_KEEP = 180
 logger = logging.getLogger(__name__)
+_GENERIC_RULE_COPY = {
+    "volume-critical": {
+        "title": "На диске почти нет места",
+        "description": "Системный или рабочий том заполнен почти полностью.",
+        "recommendation": "Освободите место или увеличьте объём тома.",
+    },
+    "volume-warning": {
+        "title": "Заканчивается место на диске",
+        "description": "На одном из томов осталось мало свободного места.",
+        "recommendation": "Запланируйте очистку до достижения критического порога.",
+    },
+}
 _ANTIVIRUS_SOFTWARE_TOKENS = (
     "defender",
     "dr.web",
@@ -51,6 +65,19 @@ _ANTIVIRUS_SOFTWARE_TOKENS = (
     "crowdstrike",
     "sentinelone",
 )
+
+
+def canonical_rule(rule: str) -> str:
+    raw = (rule or "").strip()
+    if raw.startswith("volume-critical-"):
+        return "volume-critical"
+    if raw.startswith("volume-warning-"):
+        return "volume-warning"
+    return raw
+
+
+def rule_ack_id(rule: str) -> str:
+    return f"rule:{canonical_rule(rule)}"
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -200,6 +227,7 @@ def _finding(
         recommendation=recommendation,
         evidence=evidence,
         status="open",
+        rule=canonical_rule(rule),
     )
 
 
@@ -606,6 +634,79 @@ def evaluate_computer(
     )
 
 
+def group_problem_findings(
+    findings: list[RiskFinding],
+    computers_by_id: dict[int, RiskComputer],
+) -> list[RiskProblemGroup]:
+    """Collapse per-PC findings into actual problem types (antivirus, Windows, disk…)."""
+    buckets: dict[str, list[RiskFinding]] = defaultdict(list)
+    for finding in findings:
+        key = finding.rule or canonical_rule(finding.id.split(":", 1)[-1] if ":" in finding.id else finding.id)
+        buckets[key].append(finding)
+
+    groups: list[RiskProblemGroup] = []
+    for rule, items in buckets.items():
+        ranked = sorted(
+            items,
+            key=lambda item: (-_SEVERITY_ORDER.get(item.severity, 0), -item.score, item.hostname.lower()),
+        )
+        open_items = [item for item in ranked if item.status == "open"]
+        ack_items = [item for item in ranked if item.status == "acknowledged"]
+        if open_items:
+            visible = open_items
+            status = "open"
+        elif ack_items:
+            visible = ack_items
+            status = "acknowledged"
+        else:
+            visible = ranked
+            status = "ignored"
+        representative = visible[0]
+        copy = _GENERIC_RULE_COPY.get(rule)
+        computers: list[RiskProblemComputer] = []
+        seen_pcs: set[int] = set()
+        for item in visible:
+            if item.computer_id in seen_pcs:
+                continue
+            seen_pcs.add(item.computer_id)
+            pc = computers_by_id.get(item.computer_id)
+            computers.append(
+                RiskProblemComputer(
+                    id=item.computer_id,
+                    hostname=item.hostname,
+                    ip_address=pc.ip_address if pc else None,
+                    os_name=pc.os_name if pc else None,
+                    evidence=item.evidence,
+                    finding_id=item.id,
+                    status=item.status,
+                )
+            )
+        groups.append(
+            RiskProblemGroup(
+                rule=rule,
+                finding_id=rule_ack_id(rule),
+                category=representative.category,
+                severity=representative.severity,
+                score=representative.score,
+                title=(copy["title"] if copy else representative.title),
+                description=(copy["description"] if copy else representative.description),
+                recommendation=(copy["recommendation"] if copy else representative.recommendation),
+                affected_computers=len(computers),
+                finding_count=len(visible),
+                status=status,
+                computers=computers[:250],
+            )
+        )
+    groups.sort(
+        key=lambda item: (
+            -_SEVERITY_ORDER.get(item.severity, 0),
+            -item.affected_computers,
+            item.title.lower(),
+        )
+    )
+    return groups
+
+
 def invalidate_risk_overview_cache() -> None:
     global _OVERVIEW_CACHE
     _OVERVIEW_CACHE = None
@@ -733,7 +834,14 @@ async def build_risk_overview(db: AsyncSession, *, force: bool = False) -> RiskO
         overdue_by_computer[int(row[0])] += 1
 
     ack_rows = list((await db.execute(select(RiskFindingAck))).scalars().all())
-    ack_by_id = {row.finding_id: row for row in ack_rows}
+    ack_by_id: dict[str, RiskFindingAck] = {}
+    rule_ack_by_rule: dict[str, RiskFindingAck] = {}
+    for row in ack_rows:
+        fid = (row.finding_id or "").strip()
+        if fid.startswith("rule:"):
+            rule_ack_by_rule[fid.split(":", 1)[1]] = row
+        else:
+            ack_by_id[fid] = row
 
     computer_rows: list[RiskComputer] = []
     all_findings: list[RiskFinding] = []
@@ -759,7 +867,7 @@ async def build_risk_overview(db: AsyncSession, *, force: bool = False) -> RiskO
         tagged: list[RiskFinding] = []
         open_findings: list[RiskFinding] = []
         for finding in findings:
-            ack = ack_by_id.get(finding.id)
+            ack = ack_by_id.get(finding.id) or rule_ack_by_rule.get(finding.rule)
             if ack is not None:
                 finding = finding.model_copy(
                     update={"status": ack.status, "action_note": ack.note}
@@ -821,6 +929,8 @@ async def build_risk_overview(db: AsyncSession, *, force: bool = False) -> RiskO
         if category_findings[category] > 0
     ]
     categories.sort(key=lambda item: (-item.risk_points, item.label))
+    computers_by_id = {item.id: item for item in computer_rows}
+    problem_groups = group_problem_findings(all_findings, computers_by_id)
 
     overview = RiskOverview(
         generated_at=now,
@@ -839,6 +949,7 @@ async def build_risk_overview(db: AsyncSession, *, force: bool = False) -> RiskO
         findings_acknowledged=findings_acknowledged,
         findings_ignored=findings_ignored,
         categories=categories,
+        problem_groups=problem_groups,
         computers=computer_rows[:250],
         findings=all_findings[:500],
     )

@@ -16,13 +16,13 @@ from app.async_pool import run_async_pool
 from app.local_ip import (
     arp_table_ipv4,
     default_gateway_ipv4,
-    discover_corax_network_scope,
     dns_server_ipv4,
+    resolve_lan_scan_networks,
 )
 from app.computer_ip import primary_ipv4_from_raw_payload
 from app.models import Computer, NetworkDevice, Printer
 from app.network_classify import NETWORK_DEVICE_TYPES, network_dedupe_key_for_ip
-from app.network_snmp import NetworkSnmpSnapshot, probe_network_snmp
+from app.network_snmp import NetworkSnmpSnapshot, probe_has_signal, probe_network_snmp
 from app.printer_poll import ping_ip
 
 # Full /24 = 254 hosts. Windows select() ~512 → keep concurrency under ~48.
@@ -89,25 +89,22 @@ def local_network_snmp_networks(cidr_list: list[str] | None = None) -> list[ipad
     """
     Auto scope from CORAX host topology (interfaces → gateway → routes → ARP).
     Manual CIDR in settings overrides auto-detection.
+    Docker 172.x bridges are never scanned as if they were the office LAN.
     """
-    if cidr_list:
-        nets = _private_networks_from_cidrs(cidr_list)
-        if nets:
-            return nets
-    scope = discover_corax_network_scope(max_subnets=_MAX_SUBNETS)
-    return list(scope.networks)
+    nets, _reasons = resolve_lan_scan_networks(cidr_list=cidr_list, max_subnets=_MAX_SUBNETS)
+    return nets
 
 
 def resolve_discovery_networks(
     cidr_list: list[str] | None = None,
+    hint_ips: list[str] | None = None,
 ) -> tuple[list[ipaddress.IPv4Network], list[str]]:
     """Return networks + human reasons for UI/logs."""
-    if cidr_list:
-        nets = _private_networks_from_cidrs(cidr_list)
-        if nets:
-            return nets, [f"ручной CIDR: {', '.join(str(n) for n in nets[:12])}"]
-    scope = discover_corax_network_scope(max_subnets=_MAX_SUBNETS)
-    return list(scope.networks), list(scope.reasons)
+    return resolve_lan_scan_networks(
+        cidr_list=cidr_list,
+        hint_ips=hint_ips,
+        max_subnets=_MAX_SUBNETS,
+    )
 
 
 def _infra_seed_ips(networks: list[ipaddress.IPv4Network]) -> list[str]:
@@ -199,7 +196,7 @@ def _accept_discovered(snap: NetworkSnmpSnapshot) -> bool:
         return True
     if snap.is_network_gear:
         return True
-    if snap.sys_descr or snap.sys_name or snap.sys_object_id:
+    if probe_has_signal(snap):
         return True
     return False
 
@@ -307,7 +304,10 @@ async def discover_network_devices(
     started = time.monotonic()
     deadline = started + max(30.0, total_budget_seconds)
     result = NetworkDiscoveryResult()
-    networks, reasons = resolve_discovery_networks(cidr_list)
+    inventory_pcs = await _inventory_pc_entries(db, networks=None)
+    extra_hints = await _known_device_ips(db)
+    hint_ips = [ip for ip, _hn in inventory_pcs] + extra_hints
+    networks, reasons = resolve_discovery_networks(cidr_list, hint_ips=hint_ips)
     result.networks = [str(n) for n in networks]
     result.scope_reasons = reasons
 
@@ -321,18 +321,21 @@ async def discover_network_devices(
     try_comms = _merge_communities(community, communities)
     seed_list = _infra_seed_ips(networks)
     result.seed_ips = len(seed_list)
-    inventory_pcs = await _inventory_pc_entries(db, networks=None)
     # Приоритет SNMP/ping — только IP в зоне CORAX; на карту сидим все известные ПК.
     inventory_in_zone = [(ip, hn) for ip, hn in inventory_pcs if _ip_in_networks(ip, networks)]
     inventory_ip_set = {ip for ip, _hn in inventory_pcs}
+    extra_in_zone = {ip for ip in extra_hints if _ip_in_networks(ip, networks)}
     zone_ip_set = {ip for ip, _hn in inventory_in_zone}
-    hot = set(seed_list) | zone_ip_set
+    hot = set(seed_list) | zone_ip_set | extra_in_zone
 
     ips: list[str] = []
     truncated = False
 
     # ПК из инвентаря в зоне — первыми (SNMP редко, но ping надёжнее).
     for ip, _hn in inventory_in_zone:
+        ips.append(ip)
+
+    for ip in extra_in_zone:
         ips.append(ip)
 
     for ip in seed_list:
@@ -373,11 +376,16 @@ async def discover_network_devices(
         for comm in comms:
             if time.monotonic() >= deadline:
                 return
-            snap = await probe_network_snmp(ip, community=comm, timeout=timeout)
-            if snap.error and not snap.sys_descr and not snap.sys_name and not snap.sys_object_id:
+            snap = await probe_network_snmp(
+                ip,
+                community=comm,
+                timeout=timeout,
+                allow_v1=ip in hot,
+            )
+            if snap.error and not probe_has_signal(snap):
                 last_err = True
                 continue
-            if not snap.sys_descr and not snap.sys_name and not snap.sys_object_id:
+            if not probe_has_signal(snap):
                 return
             if not _accept_discovered(snap):
                 result.skipped += 1
@@ -479,6 +487,33 @@ def _ip_in_networks(ip_s: str, networks: list[ipaddress.IPv4Network] | None) -> 
     if not isinstance(addr, ipaddress.IPv4Address):
         return False
     return any(addr in net for net in networks)
+
+
+async def _known_device_ips(db: AsyncSession) -> list[str]:
+    """IPs already in inventory besides PCs — expand scan scope and probe first."""
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str | None) -> None:
+        ip = str(raw or "").strip().split("/")[0].split(":")[0]
+        if not ip or ip in seen:
+            return
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return
+        if not isinstance(addr, ipaddress.IPv4Address):
+            return
+        if addr.is_loopback or addr.is_link_local or addr.is_multicast:
+            return
+        seen.add(ip)
+        found.append(ip)
+
+    for (ip,) in (await db.execute(select(Printer.ip_address))).all():
+        add(ip)
+    for (ip,) in (await db.execute(select(NetworkDevice.ip_address))).all():
+        add(ip)
+    return found
 
 
 async def _inventory_pc_entries(

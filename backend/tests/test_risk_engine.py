@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from starlette.testclient import TestClient
 
 from app.models import Computer, DiskVolume
-from app.risk_engine import antivirus_posture, evaluate_computer
+from app.risk_engine import antivirus_posture, canonical_rule, evaluate_computer, group_problem_findings
 
 
 def _computer(**overrides) -> Computer:
@@ -75,6 +75,76 @@ def test_security_and_capacity_rules_are_deterministic():
     assert "7:volume-critical-2" in ids
     assert "7:memory-pressure" in ids
     assert "7:tickets-overdue" in ids
+    volume = next(item for item in findings if item.id == "7:volume-critical-2")
+    assert volume.rule == "volume-critical"
+    assert canonical_rule("volume-warning-9") == "volume-warning"
+
+
+def test_group_problem_findings_sorts_by_problem_not_pc():
+    from app.risk_engine import _finding
+    from app.risk_schemas import RiskComputer
+
+    pc_a = _computer(id=1, hostname="AAA")
+    pc_b = _computer(id=2, hostname="BBB")
+    findings = [
+        _finding(
+            computer=pc_a,
+            rule="antivirus-outdated",
+            category="security",
+            severity="high",
+            score=18,
+            title="Антивирусные базы требуют обновления",
+            description="устарели",
+            recommendation="обновить",
+        ),
+        _finding(
+            computer=pc_b,
+            rule="antivirus-outdated",
+            category="security",
+            severity="high",
+            score=18,
+            title="Антивирусные базы требуют обновления",
+            description="устарели",
+            recommendation="обновить",
+        ),
+        _finding(
+            computer=pc_a,
+            rule="pending-reboot",
+            category="operations",
+            severity="medium",
+            score=8,
+            title="Для завершения обслуживания нужна перезагрузка",
+            description="reboot",
+            recommendation="reboot",
+        ),
+    ]
+    groups = group_problem_findings(
+        findings,
+        {
+            1: RiskComputer(
+                id=1,
+                hostname="AAA",
+                risk_score=26,
+                level="medium",
+                antivirus_status="attention",
+                finding_count=2,
+            ),
+            2: RiskComputer(
+                id=2,
+                hostname="BBB",
+                risk_score=18,
+                level="medium",
+                antivirus_status="attention",
+                finding_count=1,
+            ),
+        },
+    )
+    assert [item.rule for item in groups] == ["antivirus-outdated", "pending-reboot"]
+    outdated = groups[0]
+    assert outdated.affected_computers == 2
+    assert {pc.hostname for pc in outdated.computers} == {"AAA", "BBB"}
+    assert outdated.finding_id == "rule:antivirus-outdated"
+
 
 
 def test_skipped_antivirus_does_not_create_false_alarm():
@@ -182,6 +252,7 @@ def test_risk_overview_contract(client: TestClient, auth_headers: dict[str, str]
     assert isinstance(body["categories"], list)
     assert isinstance(body["computers"], list)
     assert isinstance(body["findings"], list)
+    assert isinstance(body.get("problem_groups"), list)
     assert "findings_open" in body
     assert "findings_acknowledged" in body
     assert "findings_ignored" in body
@@ -242,3 +313,56 @@ def test_risk_history_and_finding_actions(
     )
     assert reopened.status_code == 200
     assert reopened.json()["status"] == "open"
+
+
+def test_risk_rule_ignore_hides_problem_type(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    agent_headers: dict[str, str],
+):
+    from helpers import sample_inventory, unique_hostname
+
+    hostname = unique_hostname("risk-rule")
+    posted = client.post("/api/v1/agent/inventory", json=sample_inventory(hostname), headers=agent_headers)
+    assert posted.status_code == 200, posted.text
+
+    overview = client.get("/api/v1/risks/overview", headers=auth_headers)
+    assert overview.status_code == 200, overview.text
+    groups = overview.json().get("problem_groups") or []
+    target = next((item for item in groups if item.get("status", "open") == "open"), None)
+    if target is None:
+        return
+
+    ignored = client.post(
+        "/api/v1/risks/findings/actions",
+        headers=auth_headers,
+        json={"finding_id": target["finding_id"], "status": "ignored"},
+    )
+    assert ignored.status_code == 200, ignored.text
+    assert ignored.json()["finding_id"] == target["finding_id"]
+
+    after = client.get("/api/v1/risks/overview", headers=auth_headers)
+    assert after.status_code == 200
+    after_groups = after.json().get("problem_groups") or []
+    same = next((item for item in after_groups if item["rule"] == target["rule"]), None)
+    assert same is not None
+    assert same["status"] == "ignored"
+
+    reopened = client.post(
+        "/api/v1/risks/findings/actions",
+        headers=auth_headers,
+        json={"finding_id": target["finding_id"], "status": "open"},
+    )
+    assert reopened.status_code == 200
+
+
+def test_risk_ai_insights_accepts_json_body(
+    client: TestClient,
+    auth_headers: dict[str, str],
+):
+    response = client.post(
+        "/api/v1/risks/ai-insights",
+        headers=auth_headers,
+        json={"response_mode": "fast", "force": True},
+    )
+    assert response.status_code != 422, response.text

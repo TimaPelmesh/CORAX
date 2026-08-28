@@ -7,7 +7,7 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,7 @@ router = APIRouter(prefix="/risks", tags=["risks"])
 _AI_CACHE_SECONDS = 600.0
 _AI_CACHE: dict[str, tuple[float, RiskAiInsight]] = {}
 _FINDING_ID_RE = re.compile(r"^\d+:[A-Za-z0-9._\-]+$")
+_RULE_ID_RE = re.compile(r"^rule:[A-Za-z0-9._\-]+$")
 
 
 @router.get("/overview", response_model=RiskOverview)
@@ -85,12 +86,15 @@ async def risk_finding_action(
     db: AsyncSession = Depends(get_db),
 ):
     finding_id = body.finding_id.strip()
-    if not _FINDING_ID_RE.match(finding_id):
+    is_rule = bool(_RULE_ID_RE.match(finding_id))
+    if not is_rule and not _FINDING_ID_RE.match(finding_id):
         raise HTTPException(status_code=400, detail="Некорректный идентификатор наблюдения")
-    computer_id = int(finding_id.split(":", 1)[0])
-    computer = await db.get(Computer, computer_id)
-    if computer is None:
-        raise HTTPException(status_code=404, detail="Компьютер не найден")
+    computer_id: int | None = None
+    if not is_rule:
+        computer_id = int(finding_id.split(":", 1)[0])
+        computer = await db.get(Computer, computer_id)
+        if computer is None:
+            raise HTTPException(status_code=404, detail="Компьютер не найден")
 
     existing = await db.scalar(select(RiskFindingAck).where(RiskFindingAck.finding_id == finding_id))
     now = datetime.now(timezone.utc)
@@ -147,8 +151,18 @@ def _ai_context(overview: RiskOverview) -> dict:
             }
             for category in overview.categories
         ],
-        # Deliberately counts-only: no hostnames, IPs, serials, users or raw payload.
         "top_patterns": [
+            {
+                "severity": group.severity,
+                "title": group.title,
+                "recommendation": group.recommendation,
+                "affected_computers": group.affected_computers,
+                "status": group.status,
+            }
+            for group in overview.problem_groups[:20]
+            if group.status == "open"
+        ]
+        or [
             {
                 "severity": severity,
                 "title": title,
@@ -164,7 +178,7 @@ def _ai_context(overview: RiskOverview) -> dict:
 @limiter.limit("10/hour")
 async def risk_ai_insights(
     request: Request,
-    body: RiskAiRequest,
+    body: RiskAiRequest = Body(...),
     _: User = Depends(get_current_editor_or_superuser),
     db: AsyncSession = Depends(get_db),
 ):

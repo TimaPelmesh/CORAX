@@ -8,6 +8,8 @@ export type DashboardWidgetId =
   | 'dist.by_system_model'
   | 'dist.top_cpu'
   | 'dist.physical_disks'
+  | 'dist.browsers'
+  | 'dist.office'
   | 'list.top_disk_devices'
   | 'list.top_software'
   | 'list.peripheral_kinds'
@@ -27,6 +29,8 @@ export const DEFAULT_WIDGETS: WidgetVisibility = {
   'dist.by_system_model': true,
   'dist.top_cpu': true,
   'dist.physical_disks': true,
+  'dist.browsers': true,
+  'dist.office': true,
   'list.top_disk_devices': true,
   'list.top_software': true,
   'list.peripheral_kinds': true,
@@ -46,6 +50,10 @@ export function readWidgets(): WidgetVisibility {
     const out: WidgetVisibility = { ...DEFAULT_WIDGETS }
     for (const k of DASHBOARD_WIDGET_IDS) {
       if (typeof parsed[k] === 'boolean') out[k] = Boolean(parsed[k])
+    }
+    const legacyOffice = (parsed as { 'list.office'?: boolean })['list.office']
+    if (typeof parsed['dist.office'] !== 'boolean' && typeof legacyOffice === 'boolean') {
+      out['dist.office'] = legacyOffice
     }
     return out
   } catch {

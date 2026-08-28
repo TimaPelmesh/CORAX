@@ -257,7 +257,12 @@ export function AppTopBar() {
     setSearchOpen(false)
     setQuery('')
     if (hit.kind === 'request') {
-      navigate(hit.to, { state: { editRequest: hit.row } })
+      navigate(hit.to, {
+        state: {
+          editRequest: hit.row,
+          editReturnPath: '/requests/database',
+        },
+      })
       return
     }
     navigate(hit.to)

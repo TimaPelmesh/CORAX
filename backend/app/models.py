@@ -629,7 +629,9 @@ class RiskFindingAck(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     finding_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
-    computer_id: Mapped[int] = mapped_column(ForeignKey("computers.id", ondelete="CASCADE"), index=True)
+    computer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("computers.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     status: Mapped[str] = mapped_column(String(16), default="acknowledged")
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

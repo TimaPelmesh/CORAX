@@ -357,6 +357,8 @@ class DashboardSummary(BaseModel):
     ram_buckets: list[DashboardRamBucket]
     top_cpu: list[DashboardNameCount]
     top_software: list[DashboardNameCount]
+    browsers: list[DashboardNameCount] = []
+    office_suites: list[DashboardNameCount] = []
     top_monitors: list[DashboardNameCount] = []
     peripheral_kinds: list[DashboardPeripheralKind]
     top_peripherals: list[DashboardNameCount]

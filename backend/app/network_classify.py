@@ -27,8 +27,11 @@ NETWORK_DEVICE_TYPES = frozenset(
 _PRINTER_RE = re.compile(
     r"\b(printer|laserjet|inkjet|multifunction|mfp|jetdirect|bizhub|ineo|"
     r"officejet|deskjet|pagewide|ricoh|kyocera|brother|xerox|epson|"
-    r"konica|minolta|toshiba\s*tec|prtgeneral)\b|"
-    r"hewlett.?packard.*(laser|office|desk)|hp\s*eprint",
+    r"konica|minolta|toshiba\s*tec|prtgeneral|canon|samsung|zebra|zebranet|lexmark|"
+    r"sharp\s*mx|pantum|oki[a-z]?|pageprinter|print\s*server|laser\s*printer|"
+    r"color\s*laser|hp\s*eprint)\b|"
+    r"hewlett.?packard.*(laser|officejet|deskjet|printer)|"
+    r"\bhp\s*(laser|color|officejet|deskjet|desk\s*jet)",
     re.I,
 )
 
@@ -372,7 +375,7 @@ def classify_device(
     )
     full = f"{blob} {entity_blob}".strip()
 
-    if not full and not hints.ethernet_ports and not hints.has_bridge_fdb:
+    if not full and not hints.ethernet_ports and not hints.has_bridge_fdb and hints.ip_forwarding is not True:
         return DeviceClassification("unknown", None, False, 0.0, None, ())
 
     vendor = _vendor_from_oid(sys_object_id) or _vendor_from_text(full)
@@ -381,7 +384,13 @@ def classify_device(
     scores: dict[str, float] = {t: 0.0 for t in (*_GEAR_TYPES, "host", "printer", "unknown")}
     scores["unknown"] = 0.05
 
-    if _PRINTER_RE.search(full):
+    if _PRINTER_RE.search(full) and not (
+        _SWITCH_RE.search(full)
+        or _ROUTER_RE.search(full)
+        or _AP_RE.search(full)
+        or _FIREWALL_RE.search(full)
+        or _CONTROLLER_RE.search(full)
+    ):
         return DeviceClassification("printer", vendor, False, 0.95, model, ("printer_mib_or_vendor",))
 
     # Text keyword scores
@@ -481,6 +490,9 @@ def classify_device(
         if hints.ethernet_ports >= 12 or hints.has_bridge_fdb:
             scores["switch"] += 1.0
             signals.append("l3_switch_candidate")
+    if hints.has_bridge_fdb and hints.ethernet_ports >= 4 and not (sys_descr or "").strip():
+        scores["switch"] += 1.2
+        signals.append("bridge_only")
     if hints.ip_forwarding is False and hints.ethernet_ports >= 8:
         scores["switch"] += 0.8
         signals.append("l2_only")

@@ -18,6 +18,7 @@ class RiskFinding(BaseModel):
     evidence: str | None = None
     status: str = "open"
     action_note: str | None = None
+    rule: str = ""
 
 
 class RiskComputer(BaseModel):
@@ -41,6 +42,33 @@ class RiskCategorySummary(BaseModel):
     finding_count: int
 
 
+class RiskProblemComputer(BaseModel):
+    id: int
+    hostname: str
+    ip_address: str | None = None
+    os_name: str | None = None
+    evidence: str | None = None
+    finding_id: str
+    status: str = "open"
+
+
+class RiskProblemGroup(BaseModel):
+    """One actual problem type across the fleet (antivirus outdated, stale Windows, …)."""
+
+    rule: str
+    finding_id: str
+    category: str
+    severity: str
+    score: int
+    title: str
+    description: str
+    recommendation: str
+    affected_computers: int
+    finding_count: int
+    status: str = "open"
+    computers: list[RiskProblemComputer] = []
+
+
 class RiskOverview(BaseModel):
     generated_at: datetime
     fleet_health_score: int = Field(ge=0, le=100)
@@ -58,6 +86,7 @@ class RiskOverview(BaseModel):
     findings_acknowledged: int = 0
     findings_ignored: int = 0
     categories: list[RiskCategorySummary]
+    problem_groups: list[RiskProblemGroup] = []
     computers: list[RiskComputer]
     findings: list[RiskFinding]
 

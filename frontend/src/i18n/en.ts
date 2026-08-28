@@ -439,8 +439,8 @@ export const en: MessageTree = {
     saved: 'Saved',
   },
   computers: {
-    hostLabel: 'Host name',
-    hostPlaceholder: 'Part of the name, for example DESKTOP…',
+    hostLabel: 'Search',
+    hostPlaceholder: 'Host, IP, serial, user, notes…',
     tagsAnySelected: 'Tags (any selected)',
     tagsFilter: 'Tags',
     tagsFilterOpen: 'Filter by tags',
@@ -684,6 +684,16 @@ export const en: MessageTree = {
         action: 'Software catalog →',
         empty: 'No data',
       },
+      browsers: {
+        title: 'Browsers',
+        description: 'PCs with each browser (from the software registry).',
+        empty: 'No browser data',
+      },
+      office: {
+        title: 'Office suites',
+        description: 'Microsoft Office / 365, LibreOffice, МойОфис and similar.',
+        empty: 'No office data',
+      },
       upcomingNotes: {
         title: 'Plans and notes',
         description: 'Dated and recent notes you can access.',
@@ -721,6 +731,8 @@ export const en: MessageTree = {
       physicalDisks: 'Chart: Physical disks (SSD 240 GB, HDD …)',
       localDisks: 'List: Local disks',
       topSoftware: 'List: Top installed software',
+      browsers: 'Chart: Browsers',
+      office: 'Chart: Office suites',
       upcomingNotes: 'List: Plans and notes',
       calendar: 'Calendar: Work schedule and open tickets',
       peripheralKinds: 'List: Peripherals by category',

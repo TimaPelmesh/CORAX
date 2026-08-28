@@ -436,8 +436,8 @@ export const ru = {
     saved: 'Сохранено',
   },
   computers: {
-    hostLabel: 'Имя хоста',
-    hostPlaceholder: 'Часть имени, например DESKTOP…',
+    hostLabel: 'Поиск',
+    hostPlaceholder: 'Хост, IP, серийник, пользователь, заметка…',
     tagsAnySelected: 'Теги (любой из выбранных)',
     tagsFilter: 'Теги',
     tagsFilterOpen: 'Фильтр по тегам',
@@ -681,6 +681,16 @@ export const ru = {
         action: 'Каталог ПО →',
         empty: 'Нет данных',
       },
+      browsers: {
+        title: 'Браузеры',
+        description: 'Сколько ПК с каждым браузером (по записям в реестре).',
+        empty: 'Нет данных по браузерам',
+      },
+      office: {
+        title: 'Офисные пакеты',
+        description: 'Microsoft Office / 365, LibreOffice, МойОфис и другие.',
+        empty: 'Нет данных по офису',
+      },
       upcomingNotes: {
         title: 'Планы и заметки',
         description: 'С датами и недавние — к которым есть доступ.',
@@ -718,6 +728,8 @@ export const ru = {
       physicalDisks: 'Диаграмма: Физические диски (SSD 240 ГБ, HDD …)',
       localDisks: 'Список: Локальные диски',
       topSoftware: 'Список: Топ установленного ПО',
+      browsers: 'Диаграмма: Браузеры',
+      office: 'Диаграмма: Офисные пакеты',
       upcomingNotes: 'Список: Планы и заметки',
       calendar: 'Календарь: План работ и открытые заявки',
       peripheralKinds: 'Список: Периферия по категориям',

@@ -199,3 +199,49 @@ def test_computers_hostname_search_is_literal(
     assert not any(item["id"] == pc_id for item in missing.json()["items"])
 
     client.delete(f"/api/v1/computers/{pc_id}", headers=auth_headers)
+
+
+def test_computers_search_serial_notes_location(
+    client: TestClient,
+    agent_headers: dict[str, str],
+    auth_headers: dict[str, str],
+):
+    import uuid
+
+    hn = unique_hostname("host-multi-q")
+    serial = f"SN-{uuid.uuid4().hex[:10]}"
+    note = f"note-{uuid.uuid4().hex[:10]}"
+    loc = f"loc-{uuid.uuid4().hex[:8]}"
+    body = sample_inventory(hn)
+    body["serial_number"] = serial
+    created = client.post("/api/v1/agent/inventory", json=body, headers=agent_headers)
+    assert created.status_code == 200, created.text
+    pc_id = int(created.json()["computer_id"])
+
+    patched = client.patch(
+        f"/api/v1/computers/{pc_id}",
+        headers=auth_headers,
+        json={"notes": note, "location": loc},
+    )
+    assert patched.status_code == 200, patched.text
+
+    me = client.get("/api/v1/auth/me", headers=auth_headers)
+    assert me.status_code == 200, me.text
+    uid = int(me.json()["id"])
+    username = (me.json().get("username") or "").strip()
+    linked = client.patch(
+        f"/api/v1/computers/{pc_id}",
+        headers=auth_headers,
+        json={"assigned_user_id": uid},
+    )
+    assert linked.status_code == 200, linked.text
+
+    queries = [serial, note, loc, hn]
+    if username:
+        queries.append(username)
+    for q in queries:
+        found = client.get("/api/v1/computers", headers=auth_headers, params={"q": q, "limit": 50})
+        assert found.status_code == 200, found.text
+        assert any(item["id"] == pc_id for item in found.json()["items"]), q
+
+    client.delete(f"/api/v1/computers/{pc_id}", headers=auth_headers)
