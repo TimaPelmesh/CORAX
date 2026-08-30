@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.async_pool import run_async_pool
 from app.local_ip import (
+    advertise_lan_ipv4,
     arp_table_ipv4,
     default_gateway_ipv4,
     dns_server_ipv4,
@@ -38,7 +39,7 @@ _PING_BATCH_SIZE = 12
 _PING_BATCH_PAUSE_MS = 450
 _PING_JITTER_MS = 60
 _PING_TIMEOUT_MS = 800
-_PING_BUDGET_SECONDS = 180.0
+_PING_BUDGET_SECONDS = 300.0
 
 
 @dataclass
@@ -138,6 +139,9 @@ def _infra_seed_ips(networks: list[ipaddress.IPv4Network]) -> list[str]:
         add(gw)
     for dns in dns_server_ipv4():
         add(dns)
+    adv = advertise_lan_ipv4()
+    if adv:
+        add(adv)
     for arp in arp_table_ipv4():
         add(arp)
 
@@ -717,10 +721,11 @@ async def _seed_infra_stubs(
     """Add gateway/DNS/classic infra IPs even when SNMP is closed."""
     gateways = {str(g) for g in default_gateway_ipv4()}
     dns = {str(d) for d in dns_server_ipv4()}
+    advertise = (advertise_lan_ipv4() or "").strip()
     stub_offsets = {1, 2, 3, 4, 5, 10, 20, 50, 100, 200, 250, 251, 252, 253, 254}
     candidates: list[tuple[str, str]] = []
     for ip in seed_list:
-        if ip in found_ips:
+        if ip in found_ips or ip == advertise:
             continue
         try:
             last = int(ip.rsplit(".", 1)[-1])

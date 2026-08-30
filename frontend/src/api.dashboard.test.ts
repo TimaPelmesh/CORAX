@@ -59,4 +59,21 @@ describe('normalizeDashboardSummary', () => {
   it('keeps notes_total from API', () => {
     expect(normalizeDashboardSummary(minimalRaw({ notes_total: 7 })).notes_total).toBe(7)
   })
+
+  it('keeps browser and office suite totals', () => {
+    const out = normalizeDashboardSummary(
+      minimalRaw({
+        browsers: [{ name: 'Google Chrome', count: 12 }],
+        office_suites: [{ name: 'Microsoft Office', count: 8 }],
+      }),
+    )
+    expect(out.browsers).toEqual([{ name: 'Google Chrome', count: 12 }])
+    expect(out.office_suites).toEqual([{ name: 'Microsoft Office', count: 8 }])
+  })
+
+  it('defaults missing browser and office arrays', () => {
+    const out = normalizeDashboardSummary(minimalRaw())
+    expect(out.browsers).toEqual([])
+    expect(out.office_suites).toEqual([])
+  })
 })

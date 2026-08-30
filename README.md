@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/TimaPelmesh/Corax/actions/workflows/ci.yml"><img src="https://github.com/TimaPelmesh/Corax/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-1f6feb?style=flat-square" alt="License GPLv3" /></a>
-  <a href="https://github.com/TimaPelmesh/Corax/releases/tag/v1.2.0"><img src="https://img.shields.io/badge/release-v1.2.0-0e7c66?style=flat-square" alt="Release v1.2.0" /></a>
+  <a href="https://github.com/TimaPelmesh/Corax/releases/tag/v1.3.0"><img src="https://img.shields.io/badge/release-v1.3.0-0e7c66?style=flat-square" alt="Release v1.3.0" /></a>
   <img src="https://img.shields.io/badge/target-LAN%20%2F%20lab%20%2F%20office-6e7781?style=flat-square" alt="Target LAN" />
 </p>
 
@@ -58,6 +58,6 @@ The first image build takes a few minutes. Later `docker:up` calls are seconds u
 | `npm run docker:rebuild` | force-rebuild the image |
 | `npm run docker:ps` / `logs` / `restart` / `down` | status, logs, restart, stop |
 
-Docs: [GETTING_STARTED.md](GETTING_STARTED.md) · [docs/docker.md](docs/docker.md) · [docs/agents.md](docs/agents.md) · [docs/config.md](docs/config.md) · [1.2.0 notes](docs/release-v1.2.0.md) · [CHANGELOG](CHANGELOG.md) · [CONTRIBUTING](CONTRIBUTING.md) · [SECURITY](SECURITY.md)
+Docs: [GETTING_STARTED.md](GETTING_STARTED.md) · [docs/docker.md](docs/docker.md) · [docs/agents.md](docs/agents.md) · [docs/config.md](docs/config.md) · [1.3.0 notes](docs/release-v1.3.0.md) · [CHANGELOG](CHANGELOG.md) · [CONTRIBUTING](CONTRIBUTING.md) · [SECURITY](SECURITY.md)
 
 **Author:** Timur Ivanov · **License:** [GNU GPL v3](LICENSE) · © 2026

@@ -34,10 +34,14 @@ const HANDLE: CSSProperties = {
 function typeIcon(deviceType: string): ReactNode {
   const cls = 'h-4 w-4 shrink-0'
   switch (deviceType) {
+    case 'corax':
+      return <IconWarehouse className={cls} />
     case 'router':
     case 'gateway':
     case 'modem':
       return <IconRouter className={cls} />
+    case 'dns':
+      return <IconWarehouse className={cls} />
     case 'switch':
     case 'controller':
       return <IconSwitch className={cls} />
@@ -57,6 +61,10 @@ function typeIcon(deviceType: string): ReactNode {
 
 function typeTone(deviceType: string): string {
   switch (deviceType) {
+    case 'corax':
+      return 'border-[var(--color-border-strong)] bg-[var(--color-fg)] text-[var(--color-surface)] dark:bg-[var(--color-surface-elevated)] dark:text-[var(--color-fg)]'
+    case 'dns':
+      return 'border-indigo-400/70 bg-indigo-500/10 text-indigo-950 dark:text-indigo-100'
     case 'router':
     case 'gateway':
       return 'border-violet-400/70 bg-violet-500/10 text-violet-900 dark:text-violet-100'
@@ -82,6 +90,10 @@ function typeTone(deviceType: string): string {
 
 function typeCaption(deviceType: string): string {
   switch (deviceType) {
+    case 'corax':
+      return 'панель'
+    case 'dns':
+      return 'DNS'
     case 'router':
       return 'роутер'
     case 'gateway':
@@ -124,6 +136,26 @@ export function NetworkMapNode({ data }: NodeProps<NetworkMapNodeData>) {
     )
   }
 
+  if (data.deviceType === 'corax') {
+    return (
+      <div className="relative">
+        <Handle type="target" position={Position.Top} style={HANDLE} />
+        <div className="flex h-[72px] w-[196px] items-center gap-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-fg)] px-3.5 text-[var(--color-surface)] dark:bg-[var(--color-surface-elevated)] dark:text-[var(--color-fg)]">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface)] text-[var(--color-fg)] dark:bg-[var(--color-bg-muted)]">
+            {typeIcon('corax')}
+          </span>
+          <div className="min-w-0">
+            <div className="font-[family-name:var(--font-brand)] text-[1.05rem] font-semibold leading-none tracking-[-0.03em]">
+              Corax
+            </div>
+            <div className="mt-1 truncate font-mono text-[10px] opacity-70">{data.ip || 'LAN'}</div>
+          </div>
+        </div>
+        <Handle type="source" position={Position.Bottom} style={HANDLE} />
+      </div>
+    )
+  }
+
   const compact = data.kind === 'computer' || data.kind === 'printer' || data.deviceType === 'host'
   const statusDot =
     data.status === 'ok' || data.status === 'online'
@@ -136,8 +168,8 @@ export function NetworkMapNode({ data }: NodeProps<NetworkMapNodeData>) {
     <div className="relative">
       <Handle type="target" position={Position.Top} style={HANDLE} />
       <div
-        className={`flex items-start gap-2 rounded-xl border px-2.5 py-2 shadow-[0_4px_14px_rgb(0_0_0_/_0.06)] ${typeTone(data.deviceType)} ${
-          compact ? 'w-[148px]' : 'w-[188px]'
+        className={`flex items-start gap-2 rounded-xl border px-2.5 py-2 ${typeTone(data.deviceType)} ${
+          compact ? 'w-[136px]' : 'w-[168px]'
         }`}
       >
         <span className="mt-0.5 text-current">{typeIcon(data.deviceType)}</span>

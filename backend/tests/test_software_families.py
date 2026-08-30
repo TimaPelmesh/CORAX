@@ -22,3 +22,11 @@ def test_skip_updaters_and_remote_desktop():
 def test_yandex_and_edge():
     assert classify_software_name("Yandex Browser").name == "Yandex Browser"
     assert classify_software_name("Microsoft Edge").name == "Microsoft Edge"
+
+
+def test_real_agent_display_names():
+    assert classify_software_name("google-chrome-stable").name == "Google Chrome"
+    assert classify_software_name("Яндекс.Браузер").name == "Yandex Browser"
+    assert classify_software_name("Microsoft® Office Professional Plus 2019").name == "Microsoft Office"
+    assert classify_software_name("chromium-browser").name == "Chromium"
+    assert classify_software_name("firefox-esr").name == "Mozilla Firefox"

@@ -22,6 +22,7 @@ def test_network_list_and_poll_config(client: TestClient, auth_headers: dict[str
     assert "nodes" in t and "edges" in t
     assert isinstance(t["nodes"], list)
     assert isinstance(t["edges"], list)
+    assert any(n.get("id") == "corax:self" and n.get("kind") == "corax" for n in t["nodes"])
 
 
 def test_network_poll_config_update(client: TestClient, auth_headers: dict[str, str]):

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
+from app.models import Computer, DiskVolume, InstalledSoftware, Peripheral
 from app.software_families import classify_software_name
 from app.oem_normalize import (
     manufacturer_matches_display,
@@ -120,7 +121,8 @@ def computer_matches_segment(
     if kind == "ram":
         return ram_matches_bucket(c.ram_gb, name)
     if kind == "cpu":
-        return (c.cpu or "").strip() == name
+        raw = (c.cpu or "").strip()
+        return raw == name or (len(name) >= 12 and raw.startswith(name))
     if kind == "monitor":
         return bool(monitor_names and name in monitor_names)
     if kind == "physical_disk":
@@ -183,10 +185,11 @@ async def fetch_segment_computers(
         sw_rows = (
             await db.execute(select(InstalledSoftware.computer_id, InstalledSoftware.name))
         ).all()
+        want = name.casefold()
         match_ids = {
             int(cid)
             for cid, sw_name in sw_rows
-            if (fam := classify_software_name(str(sw_name))) is not None and fam.name == name
+            if (fam := classify_software_name(str(sw_name))) is not None and fam.name.casefold() == want
         }
         if not match_ids:
             return [], 0

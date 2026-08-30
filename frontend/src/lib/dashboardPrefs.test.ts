@@ -41,4 +41,14 @@ describe('dashboardPrefs', () => {
     writeWidgets(next)
     expect(readWidgets()['list.upcoming_notes']).toBe(false)
   })
+
+  it('keeps browser and office charts on when older prefs omit them', () => {
+    localStorage.setItem(
+      DASHBOARD_WIDGETS_KEY,
+      JSON.stringify({ 'dist.by_os': true, 'list.office': true }),
+    )
+    const w = readWidgets()
+    expect(w['dist.browsers']).toBe(true)
+    expect(w['dist.office']).toBe(true)
+  })
 })

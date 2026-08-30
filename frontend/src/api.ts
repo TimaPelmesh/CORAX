@@ -1075,6 +1075,8 @@ export function normalizeDashboardSummary(raw: DashboardSummary): DashboardSumma
     ram_buckets: raw.ram_buckets ?? [],
     top_cpu: raw.top_cpu ?? [],
     top_software: raw.top_software ?? [],
+    browsers: raw.browsers ?? [],
+    office_suites: raw.office_suites ?? [],
     top_monitors: raw.top_monitors ?? [],
     peripheral_kinds: raw.peripheral_kinds ?? [],
     top_peripherals: raw.top_peripherals ?? [],
@@ -3031,6 +3033,7 @@ export type NetworkTopologyNode = {
   ip_address: string | null
   vendor: string | null
   snmp_status: string | null
+  role?: string | null
 }
 
 export type NetworkTopologyEdge = {

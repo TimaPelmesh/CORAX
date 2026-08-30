@@ -37,10 +37,7 @@ export function Layout() {
     : user?.role === 'editor'
       ? t('roles.editor')
       : t('roles.viewer')
-  const roleBadgeClass =
-    user?.role === 'editor'
-      ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/35 dark:bg-sky-500/15 dark:text-sky-300'
-      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/35 dark:bg-amber-500/15 dark:text-amber-300'
+  const profileMeta = [showUsername ? user?.username : null, roleLabel].filter(Boolean).join(' · ')
   const location = useLocation()
   const lockPageScroll = location.pathname.startsWith('/knowledge-base/wikirag')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -92,21 +89,19 @@ export function Layout() {
 
   const sidebarNav = (
     <>
-      <div className="relative flex h-14 shrink-0 items-center justify-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4">
-        <div className="flex w-full items-center justify-center">
-          <CoraxLogo variant="wordmark" alt="Corax" className="sidebar-brand" />
-        </div>
+      <div className="relative flex h-14 shrink-0 items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 pr-14 lg:pr-3.5">
+        <CoraxLogo variant="sidebar" alt="Corax" />
         <button
           type="button"
-          className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] dark:text-[var(--color-fg-subtle)] lg:hidden"
+          className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] dark:text-[var(--color-fg-subtle)] lg:hidden"
           onClick={closeNav}
           aria-label={t('nav.closeMenu')}
         >
-          <IconClose className="h-6 w-6" />
+          <IconClose className="h-5 w-5" />
         </button>
       </div>
 
-      <nav className="sidebar-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain bg-[var(--color-surface)] px-2.5 py-3">
+      <nav className="sidebar-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain bg-[var(--color-surface)] px-2.5 py-3">
         <SidebarSectionList
           sections={navSections}
           navCounts={navCounts}
@@ -122,35 +117,22 @@ export function Layout() {
         />
       </nav>
 
-      <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 safe-area-pb">
-        <div className="app-panel-sm mb-2.5 !rounded-xl !py-2.5">
-          <div className="flex items-center gap-2.5">
-            <UserAvatar
-              size="md"
-              src={user?.avatar_data}
-              name={user?.full_name}
-              username={user?.username}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-semibold text-[var(--color-fg)]">{displayName}</div>
-              {showUsername ? (
-                <div className="mt-0.5 truncate font-mono text-[11px] font-medium text-[var(--color-fg-subtle)]">
-                  {user?.username}
-                </div>
-              ) : null}
-              {roleLabel ? (
-                <div className="mt-1">
-                  <span
-                    className={`inline-flex items-center rounded-full border px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.08em] ${roleBadgeClass}`}
-                  >
-                    {roleLabel}
-                  </span>
-                </div>
-              ) : null}
-            </div>
+      <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 safe-area-pb">
+        <div className="flex items-center gap-2.5 px-1.5 py-1.5">
+          <UserAvatar
+            size="sm"
+            src={user?.avatar_data}
+            name={user?.full_name}
+            username={user?.username}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-medium text-[var(--color-fg)]">{displayName}</div>
+            {profileMeta ? (
+              <div className="truncate text-[11px] text-[var(--color-fg-subtle)]">{profileMeta}</div>
+            ) : null}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="mt-0.5 flex gap-0.5">
           <button
             type="button"
             onClick={() => setPrefsOpen(true)}
@@ -158,7 +140,7 @@ export function Layout() {
             aria-label={t('prefs.open')}
             title={t('prefs.open')}
           >
-            <IconSettings className="h-[18px] w-[18px]" />
+            <IconSettings className="h-3.5 w-3.5" />
             <span>{t('prefs.open')}</span>
           </button>
           <button
@@ -173,7 +155,7 @@ export function Layout() {
             aria-label={t('nav.logout')}
             title={t('nav.logout')}
           >
-            <IconLogout className="h-[18px] w-[18px]" />
+            <IconLogout className="h-3.5 w-3.5" />
             <span>{t('nav.logout')}</span>
           </button>
         </div>
@@ -198,7 +180,7 @@ export function Layout() {
           <IconMenu className="h-6 w-6" />
         </button>
         <div className="flex min-w-0 flex-1 items-center">
-          <CoraxLogo variant="wordmark" alt="Corax" className="sidebar-brand" />
+          <CoraxLogo variant="sidebar" alt="Corax" />
         </div>
       </header>
 

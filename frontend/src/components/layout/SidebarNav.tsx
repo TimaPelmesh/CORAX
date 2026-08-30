@@ -6,7 +6,7 @@ import type { NavBadgeKey, NavCounts, NavItemDef, NavSectionDef } from './navTyp
 export function NavCountBadge({ value }: { value: number | undefined }) {
   if (value == null || value <= 0) return null
   return (
-    <span className="ml-auto shrink-0 rounded-full bg-[var(--color-surface-muted)] px-1.5 py-[1px] text-[10px] font-medium tabular-nums leading-[14px] text-[var(--color-fg-subtle)]">
+    <span className="ml-auto shrink-0 rounded-md bg-[var(--color-surface-muted)] px-1.5 py-px text-[10px] font-medium tabular-nums leading-[14px] text-[var(--color-fg-subtle)]">
       {formatNavBadge(value)}
     </span>
   )
@@ -32,29 +32,13 @@ export function SidebarNavLink({
       to={to}
       end={end}
       onClick={onNavigate}
-      className={({ isActive }) =>
-        `group relative flex min-h-9 touch-manipulation items-center gap-2 overflow-hidden rounded-md border border-transparent px-2.5 py-1 text-[13px] font-medium no-underline transition-colors active:scale-[0.99] lg:min-h-[28px] ${
-          isActive
-            ? 'bg-[var(--color-primary-muted)] text-[var(--color-fg)]'
-            : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]'
-        }`
-      }
+      className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`}
     >
-      {({ isActive }) => (
-        <>
-          <span
-            className={`relative flex h-5 w-5 shrink-0 items-center justify-center rounded-md transition ${
-              isActive
-                ? 'text-[var(--color-primary)]'
-                : 'text-[var(--color-fg-subtle)] group-hover:text-[var(--color-fg)]'
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-          </span>
-          <span className="relative min-w-0 flex-1 truncate">{children}</span>
-          <NavCountBadge value={badge} />
-        </>
-      )}
+      <span className="sidebar-link-icon" aria-hidden>
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      <NavCountBadge value={badge} />
     </NavLink>
   )
 }
@@ -62,10 +46,8 @@ export function SidebarNavLink({
 export function NavBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <div className="mb-1 px-2.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-        {title}
-      </div>
-      <div className="flex flex-col gap-px">{children}</div>
+      <div className="sidebar-section-label">{title}</div>
+      <div className="flex flex-col gap-0.5">{children}</div>
     </div>
   )
 }
@@ -86,8 +68,8 @@ export function SidebarGroupButton({
   to?: string
 }) {
   const body = (
-    <span className="flex min-w-0 flex-1 items-center gap-2">
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[var(--color-fg-subtle)] transition group-hover:text-[var(--color-fg)]">
+    <span className="flex min-w-0 flex-1 items-center gap-[0.55rem]">
+      <span className="sidebar-group-icon" aria-hidden>
         <Icon className="h-4 w-4" />
       </span>
       <span className="truncate">{label}</span>
@@ -95,17 +77,12 @@ export function SidebarGroupButton({
     </span>
   )
   const chevron = (
-    <span
-      className={`ml-1 flex h-4 w-4 shrink-0 items-center justify-center text-[var(--color-fg-subtle)] transition-all duration-200 ease-out group-hover:text-[var(--color-fg-muted)] ${
-        open ? 'rotate-180' : 'rotate-0'
-      }`}
-      aria-hidden
-    >
+    <span className={`sidebar-group-chevron ${open ? 'sidebar-group-chevron-open' : ''}`} aria-hidden>
       <svg viewBox="0 0 20 20" fill="none" className="h-3 w-3">
         <path
           d="M5.5 7.5L10 12l4.5-4.5"
           stroke="currentColor"
-          strokeWidth="1.8"
+          strokeWidth="1.7"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -115,12 +92,7 @@ export function SidebarGroupButton({
 
   if (!to) {
     return (
-      <button
-        type="button"
-        onClick={onToggle}
-        className="group flex min-h-9 w-full touch-manipulation items-center justify-between rounded-md border border-transparent px-2.5 py-1 text-left text-[13px] font-semibold text-[var(--color-fg)] transition hover:bg-[var(--color-surface-muted)] lg:min-h-[28px]"
-        aria-expanded={open}
-      >
+      <button type="button" onClick={onToggle} className="sidebar-group" aria-expanded={open}>
         {body}
         {chevron}
       </button>
@@ -128,20 +100,11 @@ export function SidebarGroupButton({
   }
 
   return (
-    <div className="group flex min-h-9 w-full touch-manipulation items-center rounded-md border border-transparent text-[13px] font-semibold text-[var(--color-fg)] transition hover:bg-[var(--color-surface-muted)] lg:min-h-[28px]">
-      <NavLink
-        to={to}
-        className="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-1 no-underline text-inherit"
-      >
+    <div className="sidebar-group">
+      <NavLink to={to} className="flex min-w-0 flex-1 items-center no-underline text-inherit">
         {body}
       </NavLink>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex h-9 w-8 shrink-0 items-center justify-center lg:h-7"
-        aria-expanded={open}
-        aria-label={label}
-      >
+      <button type="button" onClick={onToggle} className="flex h-7 w-7 shrink-0 items-center justify-center" aria-expanded={open} aria-label={label}>
         {chevron}
       </button>
     </div>
@@ -170,7 +133,7 @@ export function SidebarSectionList({
         const open = section.collapsible === false || openGroups[section.titleKey] !== false
         const sectionBadge = section.badgeKey ? navCounts?.[section.badgeKey as NavBadgeKey] : undefined
         return (
-          <div key={section.titleKey} className="space-y-0.5">
+          <div key={section.titleKey}>
             {section.collapsible === false ? (
               <NavBlock title={sectionTitle}>
                 {section.items.map((item) => (
@@ -204,7 +167,7 @@ export function SidebarSectionList({
                 >
                   <div className="overflow-hidden">
                     <div className="border-l border-[var(--color-border)] pl-1.5">
-                      <div className="flex flex-col gap-px py-0.5">
+                      <div className="flex flex-col gap-0.5 py-0.5">
                         {section.items.map((item) => (
                           <SidebarNavLink
                             key={item.to}

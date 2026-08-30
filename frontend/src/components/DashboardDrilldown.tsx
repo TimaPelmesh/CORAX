@@ -16,33 +16,35 @@ type Props = {
   onClose: () => void
 }
 
+function deviceSubtitle(row: { os_summary?: string | null; location?: string | null; assigned_user_name?: string | null }) {
+  return [row.assigned_user_name, row.os_summary, row.location].map((x) => (x ?? '').trim()).filter(Boolean).join(' · ')
+}
+
 export function DashboardDrilldownPanel({ selection, onClose }: Props) {
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<Awaited<ReturnType<typeof api.dashboardSegmentComputers>> | null>(null)
   const [computerId, setComputerId] = useState<number | null>(null)
 
   useEffect(() => {
     if (!selection) {
       setData(null)
+      setError(null)
       setComputerId(null)
       return
     }
     let cancelled = false
     setLoading(true)
+    setError(null)
     void api
       .dashboardSegmentComputers(selection.kind, selection.name, selection.chartTitle)
       .then((res) => {
         if (!cancelled) setData(res)
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (!cancelled) {
-          setData({
-            kind: selection.kind,
-            name: selection.name,
-            chart_title: selection.chartTitle,
-            total: 0,
-            items: [],
-          })
+          setData(null)
+          setError(e instanceof Error ? e.message : 'Не удалось загрузить список ПК')
         }
       })
       .finally(() => {
@@ -82,7 +84,7 @@ export function DashboardDrilldownPanel({ selection, onClose }: Props) {
     <>
       {createPortal(
         <div
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+          className="app-modal-layer fixed inset-0 z-[120] flex items-end justify-center bg-black/55 p-3 backdrop-blur-sm sm:items-center sm:p-6"
           role="dialog"
           aria-modal
           aria-labelledby="dashboard-drilldown-title"
@@ -107,8 +109,14 @@ export function DashboardDrilldownPanel({ selection, onClose }: Props) {
                   {selection.displayName ?? selection.name}
                 </h3>
                 <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
-                  {loading ? 'Загрузка…' : total ? `${total} ПК` : 'Нет подходящих ПК'}
-                  {!loading && total > shown ? ` · показано ${shown}` : null}
+                  {loading
+                    ? 'Загрузка…'
+                    : error
+                      ? error
+                      : total
+                        ? `${total} ПК`
+                        : 'Нет подходящих ПК'}
+                  {!loading && !error && total > shown ? ` · показано ${shown}` : null}
                 </p>
               </div>
               <button
@@ -133,11 +141,15 @@ export function DashboardDrilldownPanel({ selection, onClose }: Props) {
                     </li>
                   ))}
                 </ul>
+              ) : error ? (
+                <p className="app-empty-state mx-1 my-6">{error}</p>
               ) : !data?.items.length ? (
                 <p className="app-empty-state mx-1 my-6">{'Нет ПК для выбранного сегмента.'}</p>
               ) : (
                 <ul>
-                  {data.items.map((row, idx) => (
+                  {data.items.map((row, idx) => {
+                    const sub = deviceSubtitle(row)
+                    return (
                     <li
                       key={row.id}
                       className={idx > 0 ? 'border-t border-[var(--color-border)]' : undefined}
@@ -145,13 +157,19 @@ export function DashboardDrilldownPanel({ selection, onClose }: Props) {
                       <button
                         type="button"
                         onClick={() => setComputerId(row.id)}
-                        className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-muted)]"
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-[var(--color-surface-muted)]"
                       >
-                        <span className="min-w-0 truncate">{row.hostname}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-[var(--color-fg)]">{row.hostname}</span>
+                          {sub ? (
+                            <span className="mt-0.5 block truncate text-xs text-[var(--color-fg-subtle)]">{sub}</span>
+                          ) : null}
+                        </span>
                         <span className="shrink-0 text-xs font-semibold text-[var(--color-fg-subtle)]">→</span>
                       </button>
                     </li>
-                  ))}
+                    )
+                  })}
                 </ul>
               )}
             </div>
@@ -163,7 +181,7 @@ export function DashboardDrilldownPanel({ selection, onClose }: Props) {
         <ComputerDetailModal
           computerId={computerId}
           onClose={() => setComputerId(null)}
-          overlayZClass="z-[80]"
+          overlayZClass="z-[130]"
         />
       ) : null}
     </>

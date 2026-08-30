@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+Prep for the next tagged release (likely **1.3.0**). Same Docker-first LAN install. Same bootstrap rule: `admin` / `admin123` must be changed on first login.
+
+### Network map
+
+- Topology is rooted on the Corax server: gateway, DNS, switches and the rest hang off it in layers.
+- Large fleets wrap into a compact grid instead of a single endless row; PCs stay clustered.
+- Discovery seeds the advertise IP and spends longer on the ICMP sweep.
+
+### Panel chrome
+
+- Sidebar brand is text-only **Corax** (no mark), larger and left-aligned.
+- Nav rows and profile actions are quieter: no scaled wordmark, no stacked icon cards.
+
+### Dashboard
+
+- Browser and office-suite charts actually receive API totals (`normalizeDashboardSummary` was dropping `browsers` / `office_suites`).
+- Software-family matching accepts real agent names (`google-chrome-stable`, `Яндекс.Браузер`, `Microsoft® Office`, Chromium).
+- Catalog search no longer 500s: `like_contains` is imported on dashboard catalog endpoints.
+- Clicking a chart segment (browser, office, OS, …) opens the PC list again: drilldown imported inventory models, a single-slice donut is clickable, and API errors are shown instead of a fake empty list.
+
+### Tests
+
+- Frontend: dashboard summary keeps browser/office arrays; widget prefs default those charts on.
+- Backend: software-family names, ticket-handler pipeline parse, catalog `q=` must return 200.
+- Playwright: dashboard chart headings after login.
+
+---
+
 ## 1.2.0 — 2026-08-18
 
 Operational release: faster day-to-day screens, a usable Risk Center, and a cleaner Windows agent. Same Docker-first LAN install. Same bootstrap rule: `admin` / `admin123` must be changed on first login. Do not publish the panel on the internet.

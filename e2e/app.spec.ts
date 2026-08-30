@@ -39,6 +39,14 @@ test('login shell is reachable', async ({ page }) => {
   })
 })
 
+test('dashboard shows fleet charts after login', async ({ page }) => {
+  await login(page)
+  await page.goto('/')
+  await expect(page.getByText(/Браузеры|Browsers|Офисные пакеты|Office/i).first()).toBeVisible({
+    timeout: 20_000,
+  })
+})
+
 test('computers page loads after login', async ({ page }) => {
   await login(page)
   await page.goto('/computers')

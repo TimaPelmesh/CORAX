@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_editor_or_superuser, get_current_user
 from app.database import get_db
+from app.local_ip import advertise_lan_ipv4, default_gateway_ipv4, dns_server_ipv4
 from app.models import Computer, NetworkDevice, NetworkLink, Printer, User
 from app.network_classify import NETWORK_DEVICE_TYPES, infer_network_role, network_dedupe_key_for_ip
 from app.network_poll import poll_single_device
@@ -155,6 +156,7 @@ class TopologyNode(BaseModel):
     ip_address: str | None = None
     vendor: str | None = None
     snmp_status: str | None = None
+    role: str | None = None
 
 
 class TopologyEdge(BaseModel):
@@ -531,6 +533,12 @@ async def get_topology(
             ip_address=d.ip_address,
             vendor=d.vendor,
             snmp_status=d.snmp_status,
+            role=infer_network_role(
+                hostname=d.hostname,
+                sys_name=d.sys_name,
+                device_type=d.device_type,
+                source=d.source,
+            ),
         )
 
     # Inventory endpoints: linked ones always, plus every PC/printer that has an IP.
@@ -599,5 +607,50 @@ async def get_topology(
                 confidence=float(link.confidence or 1.0),
             )
         )
+
+    corax_id = "corax:self"
+    corax_ip = advertise_lan_ipv4()
+    nodes[corax_id] = TopologyNode(
+        id=corax_id,
+        kind="corax",
+        ref_id=0,
+        label="Corax",
+        device_type="corax",
+        ip_address=corax_ip,
+        vendor="CORAX",
+        snmp_status="ok",
+        role="corax",
+    )
+    gateway_ips = {str(g) for g in default_gateway_ipv4()}
+    dns_ips = {str(d) for d in dns_server_ipv4()}
+    known_pairs = {(e.source, e.target) for e in edges} | {(e.target, e.source) for e in edges}
+    hub_types = {"router", "gateway", "firewall", "modem"}
+    for nid, node in list(nodes.items()):
+        if nid == corax_id or node.kind != "network_device":
+            continue
+        ip = (node.ip_address or "").strip()
+        role = (node.role or "").lower()
+        dtype = (node.device_type or "").lower()
+        attach = (
+            ip in gateway_ips
+            or ip in dns_ips
+            or role in {"gateway", "dns"}
+            or dtype in hub_types
+        )
+        if not attach:
+            continue
+        if (corax_id, nid) in known_pairs:
+            continue
+        edges.append(
+            TopologyEdge(
+                id=f"link:corax-{nid}",
+                source=corax_id,
+                target=nid,
+                link_type="lan",
+                confidence=0.45,
+            )
+        )
+        known_pairs.add((corax_id, nid))
+        known_pairs.add((nid, corax_id))
 
     return TopologyOut(nodes=list(nodes.values()), edges=edges)

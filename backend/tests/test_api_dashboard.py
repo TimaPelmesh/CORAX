@@ -49,6 +49,8 @@ def test_dashboard_summary(client: TestClient, auth_headers: dict[str, str], age
     assert "service_requests_closed_series" in body
     assert isinstance(body["service_requests_closed_series"], list)
     assert body.get("service_requests_closed_granularity") in ("day", "week", "month")
+    assert any(row["name"] == "Google Chrome" and row["count"] >= 1 for row in body.get("browsers") or [])
+    assert any(row["name"] == "Microsoft Office" and row["count"] >= 1 for row in body.get("office_suites") or [])
 
     cached = client.get("/api/v1/dashboard/summary", headers=auth_headers)
     assert cached.status_code == 200
@@ -59,25 +61,53 @@ def test_dashboard_summary(client: TestClient, auth_headers: dict[str, str], age
         headers=auth_headers,
         params={"q": "Chrome", "limit": 5},
     )
-    assert catalog.status_code == 200
+    assert catalog.status_code == 200, catalog.text
+    chrome_rows = [row for row in catalog.json() if "Chrome" in str(row.get("name", ""))]
+    assert chrome_rows
+    assert chrome_rows[0]["count"] >= 1
 
-    if catalog.json():
-        name = catalog.json()[0]["name"]
-        hosts = client.get(
-            "/api/v1/dashboard/software-hosts",
-            headers=auth_headers,
-            params={"name": name},
-        )
-        assert hosts.status_code == 200
-        assert "hostnames" in hosts.json()
+    wildcard = client.get(
+        "/api/v1/dashboard/catalog",
+        headers=auth_headers,
+        params={"kind": "software", "q": "100%", "limit": 5},
+    )
+    assert wildcard.status_code == 200, wildcard.text
+
+    name = catalog.json()[0]["name"]
+    hosts = client.get(
+        "/api/v1/dashboard/software-hosts",
+        headers=auth_headers,
+        params={"name": name},
+    )
+    assert hosts.status_code == 200
+    assert "hostnames" in hosts.json()
 
     seg = client.get(
         "/api/v1/dashboard/segment-computers",
         headers=auth_headers,
-        params={"kind": "os", "name": "Windows 10 Pro"},
+        params={"kind": "os", "name": "Windows 10 Pro", "chart_title": "ОС"},
     )
     assert seg.status_code == 200
-    assert "items" in seg.json()
+    assert seg.json()["total"] >= 1
+    assert any(hn in str(row.get("hostname", "")) for row in seg.json()["items"])
+
+    chrome = client.get(
+        "/api/v1/dashboard/segment-computers",
+        headers=auth_headers,
+        params={"kind": "software_family", "name": "Google Chrome", "chart_title": "Браузеры"},
+    )
+    assert chrome.status_code == 200, chrome.text
+    assert chrome.json()["total"] >= 1
+    assert chrome.json()["items"]
+
+    office = client.get(
+        "/api/v1/dashboard/segment-computers",
+        headers=auth_headers,
+        params={"kind": "software_family", "name": "Microsoft Office"},
+    )
+    assert office.status_code == 200, office.text
+    assert office.json()["total"] >= 1
+    assert office.json()["items"]
 
     empty_seg = client.get(
         "/api/v1/dashboard/segment-computers",

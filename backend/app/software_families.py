@@ -39,6 +39,7 @@ _FAMILIES: tuple[tuple[SoftwareFamily, re.Pattern[str]], ...] = (
     (SoftwareFamily("browser", "Opera"), re.compile(r"\bopera\b(?!\s*gx\s*update)", re.I)),
     (SoftwareFamily("browser", "Brave"), re.compile(r"\bbrave\b", re.I)),
     (SoftwareFamily("browser", "Vivaldi"), re.compile(r"\bvivaldi\b", re.I)),
+    (SoftwareFamily("browser", "Chromium"), re.compile(r"\bchromium\b", re.I)),
     (
         SoftwareFamily("browser", "Internet Explorer"),
         re.compile(r"internet\s*explorer|\bie\s*11\b", re.I),
@@ -77,8 +78,14 @@ _FAMILIES: tuple[tuple[SoftwareFamily, re.Pattern[str]], ...] = (
 )
 
 
+def _normalize_software_name(name: str) -> str:
+    s = name.replace("®", " ").replace("™", " ")
+    s = re.sub(r"\(\s*(?:R|TM)\s*\)", " ", s, flags=re.I)
+    return re.sub(r"[\s._\-]+", " ", s).strip()
+
+
 def classify_software_name(name: str | None) -> SoftwareFamily | None:
-    s = (name or "").strip()
+    s = _normalize_software_name((name or "").strip())
     if not s or _SKIP_RE.search(s):
         return None
     for family, pattern in _FAMILIES:

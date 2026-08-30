@@ -1,6 +1,6 @@
 type Props = {
   className?: string
-  variant?: 'full' | 'icon' | 'wordmark' | 'bird'
+  variant?: 'full' | 'icon' | 'wordmark' | 'bird' | 'sidebar'
   animated?: boolean
   alt?: string
 }
@@ -45,6 +45,17 @@ export function CoraxLogo({
           }
         />
       </div>
+    )
+  }
+
+  if (variant === 'sidebar') {
+    return (
+      <span
+        className={['sidebar-brand select-none', className].filter(Boolean).join(' ')}
+        aria-label={alt}
+      >
+        <span className="sidebar-brand-name">Corax</span>
+      </span>
     )
   }
 

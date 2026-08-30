@@ -140,6 +140,9 @@ export function DonutDistribution({
               fill="none"
               stroke={segments[0].color}
               strokeWidth="28"
+              className={clickable ? 'cursor-pointer' : undefined}
+              onClick={clickable ? () => onItemClick?.(segments[0].item.name) : undefined}
+              aria-label={clickable ? t('dashboard.showPcsFor', { name: segments[0].item.name }) : undefined}
             />
           ) : null}
           {segments.map((s) => {
@@ -206,17 +209,11 @@ export function DonutDistribution({
           const legendClick = () => onItemClick?.(row.name)
           if (even) {
             const label = formatDashboardLabel(row.name)
-            return (
-              <li
-                key={row.name}
-                className={`grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-xs transition-colors duration-150 app-legend-item ${
-                  clickable ? 'cursor-pointer' : 'cursor-default'
-                } ${isSelected ? 'app-legend-item--selected' : ''}`}
-                style={{ opacity: rowDim ? 0.55 : 1 }}
-                title={clickable ? t('dashboard.clickForPcList', { name: row.name }) : row.name}
-                onMouseEnter={() => setHovered(i)}
-                onClick={clickable ? legendClick : undefined}
-              >
+            const rowClass = `grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-left text-xs transition-colors duration-150 app-legend-item ${
+              clickable ? 'cursor-pointer' : 'cursor-default'
+            } ${isSelected ? 'app-legend-item--selected' : ''}`
+            const inner = (
+              <>
                 <span
                   className="app-legend-swatch h-2 w-2 shrink-0 rounded-sm"
                   style={{ backgroundColor: donutColors[i % donutColors.length] }}
@@ -230,20 +227,37 @@ export function DonutDistribution({
                 <span className="text-[10px] tabular-nums app-table-cell-muted">
                   ({pct}%)
                 </span>
+              </>
+            )
+            return (
+              <li key={row.name} style={{ opacity: rowDim ? 0.55 : 1 }}>
+                {clickable ? (
+                  <button
+                    type="button"
+                    className={rowClass}
+                    title={t('dashboard.clickForPcList', { name: row.name })}
+                    onMouseEnter={() => setHovered(i)}
+                    onClick={legendClick}
+                  >
+                    {inner}
+                  </button>
+                ) : (
+                  <div
+                    className={rowClass}
+                    title={row.name}
+                    onMouseEnter={() => setHovered(i)}
+                  >
+                    {inner}
+                  </div>
+                )}
               </li>
             )
           }
-          return (
-            <li
-              key={row.name}
-              className={`flex items-center gap-3 rounded-xl transition-all duration-150 app-legend-item ${
-                clickable ? 'cursor-pointer' : 'cursor-default'
-              } ${isSelected ? 'app-legend-item--selected' : ''} ${tallLegend ? 'px-2.5 py-2.5 text-[15px]' : 'px-2 py-1.5 text-sm'}`}
-              style={{ opacity: rowDim ? 0.55 : 1 }}
-              title={clickable ? t('dashboard.clickForPcList', { name: row.name }) : row.name}
-              onMouseEnter={() => setHovered(i)}
-              onClick={clickable ? legendClick : undefined}
-            >
+          const rowClass = `flex w-full items-center gap-3 rounded-xl text-left transition-all duration-150 app-legend-item ${
+            clickable ? 'cursor-pointer' : 'cursor-default'
+          } ${isSelected ? 'app-legend-item--selected' : ''} ${tallLegend ? 'px-2.5 py-2.5 text-[15px]' : 'px-2 py-1.5 text-sm'}`
+          const inner = (
+            <>
               <span
                 className={`app-legend-swatch ${tallLegend ? 'h-3 w-3' : 'mt-0.5 h-2.5 w-2.5'} shrink-0 rounded-sm`}
                 style={{ backgroundColor: donutColors[i % donutColors.length] }}
@@ -257,6 +271,25 @@ export function DonutDistribution({
               <span className={`shrink-0 tabular-nums app-table-cell-muted ${tallLegend ? 'text-sm' : 'text-xs'}`}>
                 ({pct}%)
               </span>
+            </>
+          )
+          return (
+            <li key={row.name} style={{ opacity: rowDim ? 0.55 : 1 }}>
+              {clickable ? (
+                <button
+                  type="button"
+                  className={rowClass}
+                  title={t('dashboard.clickForPcList', { name: row.name })}
+                  onMouseEnter={() => setHovered(i)}
+                  onClick={legendClick}
+                >
+                  {inner}
+                </button>
+              ) : (
+                <div className={rowClass} title={row.name} onMouseEnter={() => setHovered(i)}>
+                  {inner}
+                </div>
+              )}
             </li>
           )
         })}

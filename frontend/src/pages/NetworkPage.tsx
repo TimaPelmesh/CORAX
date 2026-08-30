@@ -129,7 +129,7 @@ export function NetworkPage() {
   const { user } = useAuth()
   const canEdit = Boolean(user?.is_superuser || user?.role === 'editor')
 
-  const [view, setView] = useState<ViewMode>('list')
+  const [view, setView] = useState<ViewMode>('map')
   const [rows, setRows] = useState<NetworkDevice[]>([])
   const [topo, setTopo] = useState<NetworkTopology | null>(null)
   const [loading, setLoading] = useState(true)
@@ -348,7 +348,13 @@ export function NetworkPage() {
   ]
 
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-5 sm:px-6">
+    <div
+      className={
+        view === 'map'
+          ? 'flex w-full flex-col gap-3 px-3 py-4 sm:px-5'
+          : 'mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-5 sm:px-6'
+      }
+    >
       <header className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5">
@@ -555,6 +561,10 @@ export function NetworkPage() {
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
             <span className="inline-flex items-center gap-1.5 text-[var(--color-fg)]">
+              <span className="h-[2px] w-5 border-t border-dashed border-[var(--color-fg-muted)]" />
+              {t('network.mapLegendLan')}
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[var(--color-fg)]">
               <span className="h-[2px] w-5 rounded-full bg-[#7c3aed]" />
               {t('network.mapLegendTrace')}
             </span>
@@ -577,7 +587,7 @@ export function NetworkPage() {
               </button>
             ) : null}
           </div>
-          <div className="h-[min(82vh,920px)] overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <div className="h-[min(86vh,960px)] overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
             {flow.nodes.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-[var(--color-fg-subtle)]">
                 {t('network.mapEmpty')}
@@ -590,8 +600,8 @@ export function NetworkPage() {
                 edgeTypes={RF_EDGE_TYPES}
                 defaultEdgeOptions={RF_DEFAULT_EDGE_OPTIONS}
                 fitView
-                fitViewOptions={{ padding: 0.16, minZoom: 0.18, maxZoom: 1.6 }}
-                minZoom={0.12}
+                fitViewOptions={{ padding: 0.18, minZoom: 0.08, maxZoom: 1.5 }}
+                minZoom={0.06}
                 maxZoom={1.8}
                 onNodeClick={onMapNodeClick}
                 proOptions={RF_PRO_OPTIONS}

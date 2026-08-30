@@ -1,3 +1,4 @@
+from app import dashboard_drilldown as drilldown_mod
 from app.dashboard_drilldown import (
     build_segment_computer_row,
     computer_matches_segment,
@@ -5,7 +6,14 @@ from app.dashboard_drilldown import (
     ram_matches_bucket,
     system_model_matches_display,
 )
-from app.models import Computer
+from app.models import Computer, DiskVolume, InstalledSoftware, Peripheral
+
+
+def test_drilldown_binds_orm_models():
+    assert drilldown_mod.Computer is Computer
+    assert drilldown_mod.InstalledSoftware is InstalledSoftware
+    assert drilldown_mod.Peripheral is Peripheral
+    assert drilldown_mod.DiskVolume is DiskVolume
 
 
 def test_ram_matches_bucket():

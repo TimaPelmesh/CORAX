@@ -44,6 +44,7 @@ from app.dashboard_drilldown import (
 )
 from app.printer_cleanup import is_noise_printer_row
 from app.routers.notes import accessible_notes_count, accessible_upcoming_notes
+from app.text_sanitize import like_contains
 from app.schemas import (
     CatalogFilterHostsRequest,
     CatalogFilterHostsResponse,
@@ -728,19 +729,14 @@ async def segment_computers(
     chart_title: str | None = Query(None, max_length=255),
     limit: int = Query(200, ge=1, le=500),
 ):
+    computers, total = await fetch_segment_computers(db, kind=kind, name=name.strip(), limit=limit)
+    vols: dict[int, list] = {}
+    assignee_map: dict[int, str] = {}
     try:
-        computers, total = await fetch_segment_computers(db, kind=kind, name=name.strip(), limit=limit)
         vols = await volumes_by_computer(db, [c.id for c in computers])
         assignee_map = await _assignee_names_for_computers(db, computers)
     except Exception:
-        logger.exception("dashboard segment-computers failed kind=%s", kind)
-        return DashboardSegmentComputers(
-            kind=kind,
-            name=name.strip(),
-            chart_title=chart_title,
-            total=0,
-            items=[],
-        )
+        logger.exception("dashboard segment extras failed kind=%s — returning host list without extras", kind)
     items: list[DashboardSegmentComputer] = []
     for c in computers:
         try:
@@ -755,6 +751,12 @@ async def segment_computers(
             )
         except Exception:
             logger.exception("dashboard segment row failed computer_id=%s kind=%s", getattr(c, "id", None), kind)
+            items.append(
+                DashboardSegmentComputer(
+                    id=int(c.id),
+                    hostname=(c.hostname or "").strip() or f"#{c.id}",
+                )
+            )
     return DashboardSegmentComputers(
         kind=kind,
         name=name.strip(),
