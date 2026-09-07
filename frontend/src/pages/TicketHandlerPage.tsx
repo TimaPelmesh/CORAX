@@ -80,7 +80,7 @@ export function TicketHandlerPage() {
     return `${base}/api/v1/ticket-handler/intake`
   }, [])
 
-  const shortcutUrl = useMemo(() => `${window.location.origin}/h#pc=PC-NAME`, [])
+  const shortcutUrl = useMemo(() => `${window.location.origin}/h`, [])
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -272,6 +272,7 @@ export function TicketHandlerPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-5 sm:px-6">
+      <h1 className="sr-only">{t('titles.requestHandler')}</h1>
       <header className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-[var(--color-border)] p-0.5">

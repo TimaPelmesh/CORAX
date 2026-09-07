@@ -321,7 +321,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'Пример ссылки',
-          body: 'http://СЕРВЕР:3000/h#pc=ИМЯ-ПК — подставит hostname. Аналогично для /r.',
+          body: 'Агент инвентаризации после чтения имени ПК кладёт на рабочий стол ярлык «Заявка CORAX» вида http://СЕРВЕР:3000/h#pc=ИМЯ-ПК. Пользователь открывает его — компьютер уже вписан.',
         },
       ],
     },
@@ -750,7 +750,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'Link example',
-          body: 'http://SERVER:3000/h#pc=PC-NAME — fills hostname. Same idea for /r.',
+          body: 'After the inventory agent reads the PC name it drops a “CORAX ticket” shortcut on the desktop: http://SERVER:3000/h#pc=PC-NAME. Opening it already identifies the computer.',
         },
       ],
     },

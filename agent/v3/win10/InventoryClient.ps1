@@ -75,6 +75,9 @@ try {
 
     Set-AgentProgress 'Core: hardware, OS, software...' 15
     $core = Get-CoreInventoryPayload -Config $config
+    if ($config.helpdesk_shortcut -ne $false) {
+        Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $core.hostname
+    }
 
     $extended = [ordered]@{
         agent_version = if ($config.agent_version) { [string]$config.agent_version } else { '3.0.1' }

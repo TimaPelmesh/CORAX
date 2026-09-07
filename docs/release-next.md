@@ -8,6 +8,14 @@ Do not tag until the smoke list below is green on a LAN build.
 - Dashboard: browsers / office charts actually render; catalog search no longer 500s
 - Software-family names match real agent DisplayName / package strings
 - More unit tests (dashboard summary, prefs, families, ticket-handler pipeline)
+- **Agent (C++): survives WMI/DPAPI/schannel crashes.** Every launch installs a
+  SEH crash handler + `_set_se_translator` in worker threads. Access
+  violations, WMI provider glitches, and TLS-provider faults are turned into
+  readable `std::runtime_error` (splash shows a real message) and a minidump
+  is written next to the EXE — no more "vanishes after animation".
+- Ticket list: one-click **Close** on open tickets. Closing runs CORAX AI
+  for category + cleaner title recommendations; operator applies or keeps
+  the original, then the ticket becomes «Закрыта».
 
 ## Smoke before tag
 

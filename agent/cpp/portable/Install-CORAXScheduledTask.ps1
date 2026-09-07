@@ -8,6 +8,8 @@ param(
 $ErrorActionPreference = "Stop"
 $agent = Join-Path $PSScriptRoot "CORAX-Agent.exe"
 if (-not (Test-Path $agent)) { throw "CORAX-Agent.exe is missing beside this script." }
+$runner = Join-Path $PSScriptRoot "corax_run.cmd"
+if (-not (Test-Path $runner)) { throw "corax_run.cmd is missing beside this script." }
 
 # Provision once in the same LocalMachine DPAPI context before SYSTEM runs it.
 $provision = Join-Path $PSScriptRoot "agent.provision.json"
@@ -19,7 +21,7 @@ if ((Test-Path $provision) -and -not (Test-Path $credential)) {
     }
 }
 
-$action = New-ScheduledTaskAction -Execute $agent -Argument "--silent" -WorkingDirectory $PSScriptRoot
+$action = New-ScheduledTaskAction -Execute $runner -Argument "--silent" -WorkingDirectory $PSScriptRoot
 $trigger = New-ScheduledTaskTrigger -Daily -At $At
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 20)

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import time
@@ -74,6 +75,34 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_CACHE_SECONDS = 30.0
 _SUMMARY_CACHE: tuple[float, tuple, DashboardSummary] | None = None
+# Thundering-herd guard: если 10 клиентов пришли одновременно на холодный
+# кэш, считать дашборд должен один — остальные подождут единицы миллисекунд
+# и получат уже готовый результат из кэша.
+_SUMMARY_COMPUTE_LOCK = asyncio.Lock()
+
+# Sidebar polls nav-badges on nearly every route change; four SELECTs each
+# time on a busy panel is wasteful. 5-second per-user memo is invisible to
+# the user (counter can lag by a few seconds) and still respects tenancy —
+# `notes_total` depends on the caller.
+_NAV_BADGES_CACHE_SECONDS = 5.0
+_NAV_BADGES_CACHE: dict[int, tuple[float, DashboardNavBadges]] = {}
+
+
+def _nav_badges_cache_get(user_id: int, now_mono: float) -> DashboardNavBadges | None:
+    entry = _NAV_BADGES_CACHE.get(user_id)
+    if entry and entry[0] > now_mono:
+        return entry[1]
+    return None
+
+
+def _nav_badges_cache_put(user_id: int, now_mono: float, value: DashboardNavBadges) -> None:
+    _NAV_BADGES_CACHE[user_id] = (now_mono + _NAV_BADGES_CACHE_SECONDS, value)
+    # Prevent unbounded growth on churny sessions (LDAP mass sync, tests).
+    if len(_NAV_BADGES_CACHE) > 512:
+        cutoff = now_mono
+        stale = [uid for uid, (exp, _v) in _NAV_BADGES_CACHE.items() if exp <= cutoff]
+        for uid in stale:
+            _NAV_BADGES_CACHE.pop(uid, None)
 
 _PERIPHERAL_KIND_LABELS: dict[str, str] = {
     "keyboard": "Клавиатуры",
@@ -316,6 +345,11 @@ async def dashboard_nav_badges(
     db: AsyncSession = Depends(get_db),
 ):
     """Counts for sidebar badges only — avoids the full dashboard/summary payload."""
+    now_mono = time.monotonic()
+    cached = _nav_badges_cache_get(current.id, now_mono)
+    if cached is not None:
+        return cached
+
     computers_total = int(await db.scalar(select(func.count()).select_from(Computer)) or 0)
     software_unique_titles = int(
         await db.scalar(
@@ -342,13 +376,15 @@ async def dashboard_nav_badges(
         or 0
     )
     notes_total = await accessible_notes_count(db, current)
-    return DashboardNavBadges(
+    result = DashboardNavBadges(
         computers_total=computers_total,
         software_unique_titles=software_unique_titles,
         service_requests_active=service_requests_active,
         snmp_printers_total=snmp_printers_total,
         notes_total=notes_total,
     )
+    _nav_badges_cache_put(current.id, now_mono, result)
+    return result
 
 
 @router.get("/summary", response_model=DashboardSummary)
@@ -363,8 +399,15 @@ async def dashboard_summary(
     if cached and cached[0] > now_mono and cached[1] == stamp:
         inventory = cached[2]
     else:
-        inventory = await _compute_dashboard_inventory(db)
-        _SUMMARY_CACHE = (now_mono + _SUMMARY_CACHE_SECONDS, stamp, inventory)
+        async with _SUMMARY_COMPUTE_LOCK:
+            # Re-check under the lock: пока ждали — соседний запрос мог уже посчитать.
+            cached = _SUMMARY_CACHE
+            now_mono = time.monotonic()
+            if cached and cached[0] > now_mono and cached[1] == stamp:
+                inventory = cached[2]
+            else:
+                inventory = await _compute_dashboard_inventory(db)
+                _SUMMARY_CACHE = (now_mono + _SUMMARY_CACHE_SECONDS, stamp, inventory)
 
     upcoming_raw = await accessible_upcoming_notes(db, current, horizon_days=30, limit=8)
     upcoming_notes = [

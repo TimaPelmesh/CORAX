@@ -567,7 +567,7 @@ class TicketHandlerConfig(Base):
     __tablename__ = "ticket_handler_config"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     processor_mode: Mapped[str] = mapped_column(String(16), default="local")  # local | remote
     remote_base_url: Mapped[str] = mapped_column(String(512), default="")
     client_secret: Mapped[str] = mapped_column(String(255), default="")

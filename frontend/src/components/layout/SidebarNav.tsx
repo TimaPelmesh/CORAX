@@ -1,16 +1,19 @@
-import type { ComponentType, ReactNode } from 'react'
+import { memo, type ComponentType, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 import { formatNavBadge } from '../../lib/navBadge'
 import type { NavBadgeKey, NavCounts, NavItemDef, NavSectionDef } from './navTypes'
 
-export function NavCountBadge({ value }: { value: number | undefined }) {
+// Badge пересчитывается на каждый рендер Layout (навигация, любое setState),
+// а меняется только когда меняется счётчик. memo ловит совпадающий value:number
+// без дополнительной работы для React reconciler.
+export const NavCountBadge = memo(function NavCountBadge({ value }: { value: number | undefined }) {
   if (value == null || value <= 0) return null
   return (
     <span className="ml-auto shrink-0 rounded-md bg-[var(--color-surface-muted)] px-1.5 py-px text-[10px] font-medium tabular-nums leading-[14px] text-[var(--color-fg-subtle)]">
       {formatNavBadge(value)}
     </span>
   )
-}
+})
 
 export function SidebarNavLink({
   to,

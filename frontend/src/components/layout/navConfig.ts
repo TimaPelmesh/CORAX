@@ -31,6 +31,7 @@ export function prefsNavItems(user: { is_superuser?: boolean; role?: string } | 
     { path: '/requests/database', labelKey: 'nav.requestList' },
     { path: '/requests/templates', labelKey: 'nav.requestTemplates' },
     { path: '/requests/stats', labelKey: 'nav.requestStats' },
+    { path: '/requests/handler', labelKey: 'nav.requestHandler' },
     { path: '/knowledge-base/sitemap', labelKey: 'nav.sitemap' },
     { path: '/knowledge-base/guide', labelKey: 'nav.guide' },
     { path: '/knowledge-base/wikirag', labelKey: 'nav.wikirag' },
@@ -131,6 +132,13 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
         },
         { to: '/requests/templates', end: true, icon: IconBook, labelKey: 'nav.requestTemplates' },
         { to: '/requests/stats', end: true, icon: IconDashboard, labelKey: 'nav.requestStats' },
+        {
+          to: '/requests/handler',
+          end: true,
+          icon: IconActivity,
+          labelKey: 'nav.requestHandler',
+          keywords: ['обработчик', 'handler', '/h', 'ярлык', 'intake'],
+        },
       ],
     },
     {

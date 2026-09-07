@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse
 from sqlalchemy import func, select
 
@@ -150,18 +151,31 @@ def _cleanup_agent_inbox() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # DDL прогоняется по каждому реально уникальному engine один раз.
+    # При совпадающих DSN (Docker по умолчанию) это одна и та же БД —
+    # три metadata.create_all() всё равно безопасны (IF NOT EXISTS),
+    # но их можно объединить в одну транзакцию: экономит два round-trip
+    # `BEGIN/COMMIT` и не открывает лишние коннекты на старте.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(apply_migrations)
+        if id(diagrams_engine) == id(engine):
+            await conn.run_sync(DiagramsBase.metadata.create_all)
+            await conn.run_sync(apply_diagrams_migrations)
+        if id(warehouse_engine) == id(engine):
+            await conn.run_sync(WarehouseBase.metadata.create_all)
+            await conn.run_sync(apply_warehouse_migrations)
 
-    async with diagrams_engine.begin() as conn:
-        # Create only diagrams tables in separate DB (migrations handle CREATE IF NOT EXISTS).
-        await conn.run_sync(DiagramsBase.metadata.create_all)
-        await conn.run_sync(apply_diagrams_migrations)
+    if id(diagrams_engine) != id(engine):
+        async with diagrams_engine.begin() as conn:
+            # Create only diagrams tables in separate DB (migrations handle CREATE IF NOT EXISTS).
+            await conn.run_sync(DiagramsBase.metadata.create_all)
+            await conn.run_sync(apply_diagrams_migrations)
 
-    async with warehouse_engine.begin() as conn:
-        await conn.run_sync(WarehouseBase.metadata.create_all)
-        await conn.run_sync(apply_warehouse_migrations)
+    if id(warehouse_engine) != id(engine):
+        async with warehouse_engine.begin() as conn:
+            await conn.run_sync(WarehouseBase.metadata.create_all)
+            await conn.run_sync(apply_warehouse_migrations)
 
     async with AsyncSessionLocal() as db:
         cnt = await db.scalar(select(func.count()).select_from(User))
@@ -226,9 +240,13 @@ async def lifespan(_: FastAPI):
         await printer_poll_scheduler.stop()
         await computer_ping_scheduler.stop()
         await wikirag_corax_sync_scheduler.stop()
-        await engine.dispose()
-        await diagrams_engine.dispose()
-        await warehouse_engine.dispose()
+        # Deduplicate: при совпадающих DSN три "разных" engine это один объект.
+        seen_engines: set[int] = set()
+        for eng in (engine, diagrams_engine, warehouse_engine):
+            if id(eng) in seen_engines:
+                continue
+            seen_engines.add(id(eng))
+            await eng.dispose()
 
 
 def _openapi_paths() -> tuple[str | None, str | None, str | None]:
@@ -335,6 +353,11 @@ if settings.security_headers_enabled:
         environment=settings.environment,
         enable_csp=settings.security_csp_enabled,
     )
+
+# Прозрачное сжатие: JSON дашборда/парка ПК/списка заявок и текстовые SPA-ассеты
+# сжимаются 3–5×. WebSocket и уже сжатые ответы Starlette пропускает сам.
+# minimum_size — не тратить CPU на короткие 200 OK и подтверждения.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
 app.add_middleware(RequestLoggingMiddleware)
 
@@ -514,10 +537,29 @@ async def root_page():
     }
 
 
+class _ImmutableStaticFiles(StaticFiles):
+    """StaticFiles с длинным Cache-Control для хеш-нэймд артефактов Vite.
+
+    Vite emits `assets/<name>.<hash>.<ext>` — имя меняется при каждой сборке,
+    поэтому 1 год + immutable безопасны и убирают повторные загрузки JS/CSS/шрифтов
+    при навигациях между страницами.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        try:
+            response.headers.setdefault(
+                "Cache-Control", "public, max-age=31536000, immutable"
+            )
+        except Exception:
+            pass
+        return response
+
+
 if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").is_file():
     assets = _FRONTEND_DIST / "assets"
     if assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
+        app.mount("/assets", _ImmutableStaticFiles(directory=str(assets)), name="assets")
 
     @app.api_route("/api/v1/{rest:path}", methods=["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
     @app.api_route("/api/{rest:path}", methods=["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])

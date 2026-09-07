@@ -161,6 +161,7 @@ def _build_agent_config(body: AgentBundleCreate) -> dict:
             "weekday": schedule.weekday,
             "task_name": schedule.task_name,
         },
+        "helpdesk_shortcut": True,
     }
 
 

@@ -17,5 +17,6 @@ bool append_file_utf8(const std::string& path, const std::string& data);
 std::string iso8601_utc_now();
 std::string getenv_utf8(const char* name);
 bool is_elevated();
+std::string computer_hostname();
 
 }  // namespace util

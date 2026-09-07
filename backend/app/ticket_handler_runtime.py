@@ -7,6 +7,7 @@ import logging
 import re
 import secrets
 import time
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -25,6 +26,7 @@ from app.models import (
 )
 from app.routers.agent import _reported_assigned_user
 from app.search_index import index_service_request
+from app.ticket_client_identity import is_dockerish_ip, normalize_ip, reverse_dns_shortname, sam_account
 from app.service_request_tickets import ensure_ticket_no
 from app.wikirag_lm import coerce_parsed, lm_studio_chat
 
@@ -47,11 +49,21 @@ CLASSIFY_SYSTEM = (
 
 @dataclass
 class IntakeInput:
-    hostname: str
-    title: str
+    hostname: str = ""
+    title: str = ""
     description: str = ""
     dry_run: bool = False
     secret: str | None = None
+    client_ip: str = ""
+    sso_login: str | None = None
+
+
+@dataclass
+class ClientIdentity:
+    computer: Computer | None
+    hostname: str
+    requester_name: str | None
+    location: str | None
 
 
 @dataclass
@@ -115,31 +127,205 @@ async def _bot_user(db: AsyncSession) -> User:
     return row
 
 
+def hostname_candidates(hostname: str) -> list[str]:
+    """Lookup keys: exact, NETBIOS, short name without FQDN / trailing $."""
+    raw = (hostname or "").strip()
+    if not raw:
+        return []
+    out: list[str] = []
+
+    def add(value: str) -> None:
+        v = value.strip().rstrip(".").lower()
+        if v and v not in out:
+            out.append(v)
+
+    add(raw)
+    if "\\" in raw:
+        add(raw.rsplit("\\", 1)[-1])
+    short = raw.split(".", 1)[0]
+    if "\\" in short:
+        short = short.rsplit("\\", 1)[-1]
+    add(short)
+    if short.endswith("$"):
+        add(short[:-1])
+    return out
+
+
+def requester_label_for_user(user: User) -> str:
+    """Same shape as the ticket form directory picker: «Имя (login)»."""
+    full = (user.full_name or "").strip()
+    uname = (user.username or "").strip()
+    if full and uname:
+        return f"{full} ({uname})"[:255]
+    return (full or uname)[:255]
+
+
+def _is_directory_person(user: User) -> bool:
+    if bool(user.is_ldap):
+        return True
+    return (user.role or "").strip().lower() == "directory" and not (user.username or "").endswith("-bot")
+
+
+async def _follow_directory_user(db: AsyncSession, user: User | None) -> User | None:
+    if user is None:
+        return None
+    if user.linked_directory_user_id:
+        linked = await db.get(User, user.linked_directory_user_id)
+        if linked is not None and linked.is_active:
+            return linked
+    if _is_directory_person(user):
+        return user
+    twin = await db.scalar(
+        select(User)
+        .where(
+            func.lower(User.username) == (user.username or "").strip().lower(),
+            User.is_ldap.is_(True),
+            User.is_active.is_(True),
+            User.id != user.id,
+        )
+        .limit(1)
+    )
+    return twin or user
+
+
 async def resolve_computer(db: AsyncSession, hostname: str) -> Computer | None:
-    normalized = (hostname or "").strip()
-    if not normalized:
+    keys = hostname_candidates(hostname)
+    if not keys:
+        return None
+    row = await db.scalar(
+        select(Computer)
+        .where(func.lower(Computer.hostname).in_(keys))
+        .order_by(Computer.last_report_at.desc().nulls_last())
+        .limit(1)
+    )
+    if row is not None:
+        return row
+    short = keys[-1]
+    if any(ch in short for ch in "%_"):
         return None
     return await db.scalar(
-        select(Computer).where(func.lower(Computer.hostname) == normalized.lower()).limit(1)
+        select(Computer)
+        .where(func.lower(Computer.hostname).like(f"{short}.%"))
+        .order_by(Computer.last_report_at.desc().nulls_last())
+        .limit(1)
     )
 
 
-async def resolve_requester(db: AsyncSession, computer: Computer | None, hostname: str) -> str:
+async def resolve_directory_user(db: AsyncSession, computer: Computer | None) -> User | None:
+    """LDAP/directory person at this PC — never the hostname itself."""
     if computer is None:
-        return f"ПК {hostname}" if hostname else "Неизвестный ПК"
-    assigned_user = await db.get(User, computer.assigned_user_id) if computer.assigned_user_id else None
-    if assigned_user is None and computer.raw_payload:
+        return None
+    from_agent: User | None = None
+    if computer.raw_payload:
         try:
             payload = json.loads(computer.raw_payload)
             extended = payload.get("extended") if isinstance(payload, dict) else None
         except json.JSONDecodeError:
             extended = None
-        assigned_user = await _reported_assigned_user(db, extended if isinstance(extended, dict) else None)
-        if assigned_user is not None:
-            computer.assigned_user_id = assigned_user.id
-    if assigned_user is not None:
-        return (assigned_user.full_name or assigned_user.username or "").strip() or f"ПК {computer.hostname}"
-    return f"ПК {computer.hostname}"
+        from_agent = await _reported_assigned_user(db, extended if isinstance(extended, dict) else None)
+        if from_agent is not None and computer.assigned_user_id is None:
+            computer.assigned_user_id = from_agent.id
+    assigned = await db.get(User, computer.assigned_user_id) if computer.assigned_user_id else None
+    # Prefer the account currently reported by the agent (who is at the keyboard).
+    picked = await _follow_directory_user(db, from_agent) or await _follow_directory_user(db, assigned)
+    return picked
+
+
+async def resolve_requester(db: AsyncSession, computer: Computer | None, hostname: str = "") -> str | None:
+    del hostname  # PC belongs in computer_id, not in the initiator field.
+    user = await resolve_directory_user(db, computer)
+    if user is None:
+        return None
+    label = requester_label_for_user(user)
+    return label or None
+
+
+async def resolve_ldap_user_by_login(db: AsyncSession, login: str | None) -> User | None:
+    name = sam_account(login)
+    if not name:
+        return None
+    rows = list(
+        (
+            await db.execute(
+                select(User).where(func.lower(User.username) == name.lower(), User.is_active.is_(True))
+            )
+        ).scalars().all()
+    )
+    if not rows:
+        return None
+    ldap = [u for u in rows if u.is_ldap]
+    if ldap:
+        return await _follow_directory_user(db, ldap[0])
+    return await _follow_directory_user(db, rows[0])
+
+
+async def resolve_computer_by_ip(db: AsyncSession, ip: str | None) -> Computer | None:
+    addr = normalize_ip(ip)
+    if not addr or is_dockerish_ip(addr):
+        return None
+    keys = {addr}
+    if ":" not in addr:
+        keys.add(f"::ffff:{addr}")
+    return await db.scalar(
+        select(Computer)
+        .where(Computer.ip_address.in_(keys))
+        .order_by(Computer.last_report_at.desc().nulls_last())
+        .limit(1)
+    )
+
+
+async def resolve_computer_for_user(db: AsyncSession, user: User | None) -> Computer | None:
+    if user is None:
+        return None
+    ids = {user.id}
+    if user.linked_directory_user_id:
+        ids.add(user.linked_directory_user_id)
+    return await db.scalar(
+        select(Computer)
+        .where(Computer.assigned_user_id.in_(ids))
+        .order_by(Computer.last_report_at.desc().nulls_last())
+        .limit(1)
+    )
+
+
+async def resolve_client_identity(
+    db: AsyncSession,
+    *,
+    hostname_hint: str = "",
+    client_ip: str = "",
+    sso_login: str | None = None,
+) -> ClientIdentity:
+    hint = (hostname_hint or "").strip()
+    dns_name: str | None = None
+    computer = await resolve_computer(db, hint) if hint else None
+
+    sso_user = await resolve_ldap_user_by_login(db, sso_login)
+    if computer is None and sso_user is not None:
+        computer = await resolve_computer_for_user(db, sso_user)
+
+    if computer is None:
+        computer = await resolve_computer_by_ip(db, client_ip)
+    if computer is None and client_ip and not is_dockerish_ip(client_ip):
+        try:
+            dns_name = await asyncio.wait_for(asyncio.to_thread(reverse_dns_shortname, client_ip), timeout=0.45)
+        except (asyncio.TimeoutError, OSError):
+            dns_name = None
+        if dns_name:
+            computer = await resolve_computer(db, dns_name)
+
+    if sso_user is not None:
+        requester = requester_label_for_user(sso_user) or None
+    else:
+        requester = await resolve_requester(db, computer)
+
+    hostname = ((computer.hostname if computer else "") or hint or (dns_name or "")).strip()
+    location = ((computer.location or "").strip() if computer is not None else "") or None
+    return ClientIdentity(
+        computer=computer,
+        hostname=hostname,
+        requester_name=requester,
+        location=location,
+    )
 
 
 async def _load_category_paths(db: AsyncSession) -> list[str]:
@@ -288,7 +474,7 @@ async def _create_service_request(
     hostname: str,
     title: str,
     description: str,
-    requester_name: str,
+    requester_name: str | None,
     category: str | None,
 ) -> ServiceRequest:
     bot = await _bot_user(db)
@@ -298,14 +484,16 @@ async def _create_service_request(
         status = "open"
     priority = (cfg.default_priority or "normal").strip() or "normal"
     cat = (category or "").strip() or None
+    label = (requester_name or "").strip()
+    loc = (computer.location or "").strip() if computer is not None else ""
     row = ServiceRequest(
         title=title.strip()[:255],
         description=(description.strip()[:10_000] or None),
         status=status[:64],
         priority=priority[:32],
-        requester_name=requester_name[:255],
+        requester_name=label[:255] or None,
         category=cat[:255] if cat else None,
-        location=None,
+        location=loc[:255] or None,
         computer_id=computer.id if computer else None,
         created_by_id=bot.id,
         opened_at=now,
@@ -475,12 +663,18 @@ async def enrich_ticket_ai_task(request_id: int) -> None:
 
 async def run_intake(db: AsyncSession, cfg: TicketHandlerConfig, payload: IntakeInput) -> IntakeResult:
     started = time.perf_counter()
-    hostname = (payload.hostname or "").strip()
     title = (payload.title or "").strip()
     description = (payload.description or "").strip()
 
-    computer = await resolve_computer(db, hostname)
-    requester_name = await resolve_requester(db, computer, hostname)
+    identity = await resolve_client_identity(
+        db,
+        hostname_hint=payload.hostname,
+        client_ip=payload.client_ip,
+        sso_login=payload.sso_login,
+    )
+    computer = identity.computer
+    hostname = identity.hostname
+    requester_name = identity.requester_name
 
     category_paths: list[str] = []
     try:

@@ -8,6 +8,7 @@ const ROUTE_TITLES: Array<{ path: string; key: MessageKey; end?: boolean }> = [
   { path: '/requests/database', key: 'titles.requestList' },
   { path: '/requests/templates', key: 'titles.requestTemplates' },
   { path: '/requests/stats', key: 'titles.requestStats' },
+  { path: '/requests/handler', key: 'titles.requestHandler' },
   { path: '/requests', key: 'titles.requestNew', end: true },
   { path: '/warehouse', key: 'titles.warehouse' },
   { path: '/knowledge-base/sitemap', key: 'titles.sitemap' },

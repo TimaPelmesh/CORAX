@@ -83,6 +83,9 @@ const SelfServicePage = lazy(() =>
 const TicketHandlerClientPage = lazy(() =>
   import('./pages/TicketHandlerClientPage').then((module) => ({ default: module.TicketHandlerClientPage })),
 )
+const TicketHandlerPage = lazy(() =>
+  import('./pages/TicketHandlerPage').then((module) => ({ default: module.TicketHandlerPage })),
+)
 const GuidePage = lazy(() => import('./pages/GuidePage').then((module) => ({ default: module.GuidePage })))
 
 function DocumentTitle() {
@@ -144,6 +147,7 @@ export default function App() {
         <Route path="computers" element={<ComputersPage />} />
         <Route path="printers" element={<PrintersPage />} />
         <Route path="network" element={<NetworkPage />} />
+        <Route path="requests/handler" element={<TicketHandlerPage />} />
         <Route path="requests" element={<ServiceRequestsPage />}>
           <Route index element={null} />
           <Route path="database" element={null} />

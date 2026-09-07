@@ -1,4 +1,3 @@
-import ipaddress
 import json
 import secrets
 from datetime import date, datetime, timedelta, timezone
@@ -24,12 +23,12 @@ from app.schemas import (
     TicketHandlerStatsOut,
     TicketHandlerStatsPoint,
 )
+from app.ticket_client_identity import client_ip, is_private_ip, sso_login
 from app.ticket_handler_runtime import (
     DEFAULT_SYSTEM_PROMPT,
     IntakeInput,
     enrich_ticket_ai_task,
-    resolve_computer,
-    resolve_requester,
+    resolve_client_identity,
     run_intake,
 )
 
@@ -142,7 +141,7 @@ async def _get_or_create_config(db: AsyncSession) -> TicketHandlerConfig:
             lm_model = "qwen2.5:3b"
         row = TicketHandlerConfig(
             id=1,
-            enabled=False,
+            enabled=True,
             processor_mode="local",
             remote_base_url="",
             client_secret=secrets.token_urlsafe(24),
@@ -405,17 +404,13 @@ async def ticket_handler_stats(
 
 
 def _client_host(request: Request) -> str:
-    return (request.client.host if request.client else "") or ""
+    return client_ip(request)
 
 
 def _is_private_client(request: Request) -> bool:
     if settings.environment == "test":
         return True
-    host = _client_host(request)
-    try:
-        return ipaddress.ip_address(host).is_private
-    except ValueError:
-        return False
+    return is_private_ip(_client_host(request))
 
 
 def _secret_ok(cfg: TicketHandlerConfig, provided: str | None, request: Request) -> bool:
@@ -446,20 +441,24 @@ def _require_intake_access(cfg: TicketHandlerConfig, request: Request, secret: s
 @router.get("/public/context", response_model=TicketHandlerPublicContextOut)
 async def public_context(
     request: Request,
-    hostname: str = Query(..., min_length=1, max_length=255),
+    hostname: str | None = Query(default=None, max_length=255),
     secret: str | None = Query(default=None, max_length=255),
     db: AsyncSession = Depends(get_db),
 ):
     cfg = await _get_or_create_config(db)
     _require_intake_access(cfg, request, secret)
-    computer = await resolve_computer(db, hostname)
-    requester = await resolve_requester(db, computer, hostname)
+    identity = await resolve_client_identity(
+        db,
+        hostname_hint=hostname or "",
+        client_ip=client_ip(request),
+        sso_login=sso_login(request),
+    )
     return TicketHandlerPublicContextOut(
         enabled=bool(cfg.enabled),
-        hostname=(computer.hostname if computer else hostname.strip()),
-        computer_id=computer.id if computer else None,
-        location=None,
-        requester_hint=requester,
+        hostname=identity.hostname,
+        computer_id=identity.computer.id if identity.computer else None,
+        location=identity.location,
+        requester_hint=identity.requester_name,
     )
 
 
@@ -483,11 +482,13 @@ async def intake(
         db,
         cfg,
         IntakeInput(
-            hostname=body.hostname,
+            hostname=body.hostname or "",
             title=body.title,
             description=body.description or "",
             dry_run=bool(body.dry_run),
             secret=body.secret,
+            client_ip=client_ip(request),
+            sso_login=sso_login(request),
         ),
     )
     if result.schedule_enrich_id:

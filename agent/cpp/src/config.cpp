@@ -97,6 +97,7 @@ void apply_json(AgentConfig& cfg, const std::string& json) {
   s = json_string(json, "profile");
   if (!s.empty()) cfg.profile = s;
   cfg.silent = json_bool(json, "silent", cfg.silent);
+  cfg.helpdesk_shortcut = json_bool(json, "helpdesk_shortcut", cfg.helpdesk_shortcut);
   cfg.software_max = json_int(json, "software_max", cfg.software_max);
 
   auto limits = extract_object(json, "limits");

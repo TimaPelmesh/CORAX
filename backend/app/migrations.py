@@ -870,7 +870,7 @@ def _migrate_ticket_handler_tables(sync_conn) -> None:
             ddl = """
                 CREATE TABLE ticket_handler_config (
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  enabled BOOLEAN NOT NULL DEFAULT 0,
+                  enabled BOOLEAN NOT NULL DEFAULT 1,
                   processor_mode VARCHAR(16) NOT NULL DEFAULT 'local',
                   remote_base_url VARCHAR(512) NOT NULL DEFAULT '',
                   client_secret VARCHAR(255) NOT NULL DEFAULT '',
@@ -892,7 +892,7 @@ def _migrate_ticket_handler_tables(sync_conn) -> None:
             ddl = """
                 CREATE TABLE ticket_handler_config (
                   id SERIAL PRIMARY KEY,
-                  enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                  enabled BOOLEAN NOT NULL DEFAULT TRUE,
                   processor_mode VARCHAR(16) NOT NULL DEFAULT 'local',
                   remote_base_url VARCHAR(512) NOT NULL DEFAULT '',
                   client_secret VARCHAR(255) NOT NULL DEFAULT '',
@@ -949,6 +949,16 @@ def _migrate_ticket_handler_tables(sync_conn) -> None:
         sync_conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_ticket_handler_runs_status ON ticket_handler_runs (status)")
         )
+
+
+def _migrate_ticket_handler_enable_by_default(sync_conn) -> None:
+    """Enable /h intake. It shipped off, and the admin page was not routed in the panel."""
+    if "ticket_handler_config" not in _table_names(sync_conn):
+        return
+    if sync_conn.dialect.name == "sqlite":
+        sync_conn.execute(text("UPDATE ticket_handler_config SET enabled = 1 WHERE enabled = 0"))
+    else:
+        sync_conn.execute(text("UPDATE ticket_handler_config SET enabled = TRUE WHERE enabled IS NOT TRUE"))
 
 
 def _migrate_service_request_ai_fields(sync_conn) -> None:
@@ -1268,6 +1278,119 @@ def _migrate_risk_snapshots_and_acks(sync_conn) -> None:
     )
 
 
+def _migrate_perf_indexes_1_3(sync_conn) -> None:
+    """Аддитивные индексы под горячие SELECT-ы (v1.3.x).
+
+    Ничего не меняет в схеме, только `IF NOT EXISTS`. Через `_pg_try_execute`
+    в PostgreSQL, чтобы даже неожиданная ошибка не сломала транзакцию
+    выкладки (для sqlite — обычный execute).
+
+    Что закрываем:
+    - `installed_software (computer_id, name)` — компактный доступ по ПК с
+      сортировкой (карточка ПК, установленные программы), для дашборд-
+      классификации семейств тоже помогает индекс-only sort.
+    - `installed_software (name)` — plain btree под GROUP BY name / DISTINCT
+      name (сейчас есть только GIN-trgm под ILIKE-поиск, он для GROUP BY не
+      используется планировщиком).
+    - `computers (last_report_at DESC)` — "недавно репортили" виджеты.
+    - `asset_change_logs (computer_id, created_at DESC)` — лента изменений
+      карточки ПК (Feature list в канве).
+    - `service_requests (created_by_id, created_at DESC)` и `(created_at DESC)`
+      — список заявок по автору / хронологически.
+    """
+    tables = _table_names(sync_conn)
+    is_pg = sync_conn.dialect.name == "postgresql"
+
+    def _run(sql: str) -> None:
+        if is_pg:
+            _pg_try_execute(sync_conn, sql)
+        else:
+            try:
+                sync_conn.execute(text(sql))
+            except Exception:
+                pass
+
+    if "installed_software" in tables:
+        _run(
+            "CREATE INDEX IF NOT EXISTS ix_installed_software_computer_id_name "
+            "ON installed_software (computer_id, name)"
+        )
+        _run(
+            "CREATE INDEX IF NOT EXISTS ix_installed_software_name "
+            "ON installed_software (name)"
+        )
+
+    if "computers" in tables:
+        if is_pg:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_computers_last_report_at "
+                "ON computers (last_report_at DESC NULLS LAST)"
+            )
+        else:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_computers_last_report_at "
+                "ON computers (last_report_at)"
+            )
+
+    if "asset_change_logs" in tables:
+        if is_pg:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_asset_change_logs_computer_id_created_at "
+                "ON asset_change_logs (computer_id, created_at DESC)"
+            )
+        else:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_asset_change_logs_computer_id_created_at "
+                "ON asset_change_logs (computer_id, created_at)"
+            )
+
+    if "service_requests" in tables:
+        if is_pg:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_service_requests_created_at "
+                "ON service_requests (created_at DESC)"
+            )
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_service_requests_created_by_id_created_at "
+                "ON service_requests (created_by_id, created_at DESC)"
+            )
+        else:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_service_requests_created_at "
+                "ON service_requests (created_at)"
+            )
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_service_requests_created_by_id_created_at "
+                "ON service_requests (created_by_id, created_at)"
+            )
+
+def _migrate_warehouse_perf_indexes(sync_conn) -> None:
+    """Индексы для истории движений склада (см. `_migrate_perf_indexes_1_3`)."""
+    tables = _table_names(sync_conn)
+    is_pg = sync_conn.dialect.name == "postgresql"
+
+    def _run(sql: str) -> None:
+        if is_pg:
+            _pg_try_execute(sync_conn, sql)
+        else:
+            try:
+                sync_conn.execute(text(sql))
+            except Exception:
+                pass
+
+    if "stock_movements" in tables:
+        if is_pg:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_stock_movements_item_id_created_at "
+                "ON stock_movements (item_id, created_at DESC)"
+            )
+        else:
+            _run(
+                "CREATE INDEX IF NOT EXISTS ix_stock_movements_item_id_created_at "
+                "ON stock_movements (item_id, created_at)"
+            )
+
+
 def _migrate_risk_rule_acks(sync_conn) -> None:
     """Allow fleet-wide ignore of a problem type (finding_id = rule:…)."""
     if "risk_finding_acks" not in _table_names(sync_conn):
@@ -1356,6 +1479,8 @@ _MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("2026-08-17_service_requests_perf_indexes", _migrate_service_request_ops_indexes),
     ("2026-08-17_risk_snapshots_and_acks", _migrate_risk_snapshots_and_acks),
     ("2026-08-28_risk_rule_acks", _migrate_risk_rule_acks),
+    ("2026-09-07_perf_indexes_1_3", _migrate_perf_indexes_1_3),
+    ("2026-09-07_ticket_handler_enable", _migrate_ticket_handler_enable_by_default),
 ]
 
 
@@ -1440,6 +1565,7 @@ def apply_warehouse_migrations(sync_conn) -> None:
         ("2026-05-21_warehouse_init", lambda _conn: None),
         ("2026-08-17_warehouse_manufacturer", _migrate_warehouse_manufacturer),
         ("2026-08-17_warehouse_external_id", _migrate_warehouse_external_id),
+        ("2026-09-07_warehouse_perf_indexes", _migrate_warehouse_perf_indexes),
     ]:
         if _is_applied(sync_conn, version):
             continue

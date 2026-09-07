@@ -13,6 +13,11 @@ describe('titleForPath', () => {
     expect(titleForPath('/settings/https', 'en')).toMatch(/HTTPS/i)
   })
 
+  it('resolves ticket handler route', () => {
+    expect(titleForPath('/requests/handler', 'ru')).toMatch(/Обработчик/)
+    expect(titleForPath('/requests/handler', 'en')).toMatch(/handler/i)
+  })
+
   it('resolves warehouse, settings hub, and guide', () => {
     expect(titleForPath('/warehouse', 'ru')).toMatch(/Склад/)
     expect(titleForPath('/knowledge-base/warehouse', 'ru')).toMatch(/Склад/)

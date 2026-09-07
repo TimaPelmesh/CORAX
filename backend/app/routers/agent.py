@@ -81,8 +81,23 @@ async def _reported_assigned_user(db: AsyncSession, extended: dict | None) -> Us
     rows = (
         await db.execute(select(User).where(func.lower(User.username).in_(names), User.is_active.is_(True)))
     ).scalars().all()
-    by_name = {(row.username or "").strip().lower(): row for row in rows}
-    return next((by_name[name] for name in names if name in by_name), None)
+    by_name: dict[str, list[User]] = {}
+    for row in rows:
+        by_name.setdefault((row.username or "").strip().lower(), []).append(row)
+    for name in names:
+        candidates = by_name.get(name) or []
+        if not candidates:
+            continue
+        ldap = [u for u in candidates if u.is_ldap]
+        if ldap:
+            return ldap[0]
+        linked_id = next((u.linked_directory_user_id for u in candidates if u.linked_directory_user_id), None)
+        if linked_id:
+            linked = await db.get(User, linked_id)
+            if linked is not None and linked.is_active:
+                return linked
+        return candidates[0]
+    return None
 
 
 async def verify_agent_token(db: AsyncSession, authorization: str | None, hostname: str) -> None:

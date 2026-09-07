@@ -67,6 +67,8 @@ def test_create_native_agent_is_portable_zip_with_unmodified_exe(
             "package.json",
             "SHA256SUMS.txt",
             "Run CORAX Agent.cmd",
+            "corax_run.cmd",
+            "Install-HelpdeskShortcut.ps1",
             "Install-CORAXScheduledTask.ps1",
         }.issubset(names)
         exe = zf.read("CORAX-Agent.exe")

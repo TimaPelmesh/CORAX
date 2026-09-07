@@ -316,6 +316,7 @@ def _cpp_public_config(body: AgentBundleCreate, server: str) -> dict:
         "agent_version": "5.0.0",
         "profile": profile,
         "silent": False,
+        "helpdesk_shortcut": True,
         "modules": modules,
         "limits": {
             "software_max": 12000,
@@ -370,6 +371,8 @@ async def build_cpp_agent_bundle(db: AsyncSession, body: AgentBundleCreate) -> t
         zf.writestr("SHA256SUMS.txt", f"{exe_sha256}  CORAX-Agent.exe\n")
         for name in (
             "Run CORAX Agent.cmd",
+            "corax_run.cmd",
+            "Install-HelpdeskShortcut.ps1",
             "Install scheduled task.cmd",
             "Install-CORAXScheduledTask.ps1",
             "README.txt",

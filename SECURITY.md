@@ -29,4 +29,19 @@ Never commit `backend/.env`, agent ZIPs with stamped tokens, `agent_env.bat` / `
 - Security headers (and HSTS when HTTPS is on)
 - OpenAPI docs off in production unless `ENABLE_OPENAPI=true`
 
+## Agent (C++, Windows) — credential storage and hardening
+
+- The panel-generated `.zip` ships a one-time `agent.provision.json`. On first
+  launch it is protected with **Windows DPAPI `LocalMachine`**, written back as
+  hidden `agent.cred`, and the provisioning file is overwritten with zeros and
+  deleted. No plaintext token stays on disk.
+- HTTPS uploads: **TLS 1.2 is the enforced minimum** and certificate
+  validation is never disabled (see `agent/cpp/src/http.cpp`). An unpatched
+  host must be updated instead of falling back to older TLS.
+- Every launch runs behind a **process-wide crash handler** — SEH exceptions
+  in WMI providers, schannel, or DPAPI are translated to `std::runtime_error`
+  and produce a `corax-agent-crash-<ts>.dmp` next to the EXE plus a readable
+  line in `corax-agent.log` (module + offset). This replaces the previous
+  "just disappears after splash" failure mode with something diagnosable.
+
 See [docs/config.md](docs/config.md) and [CHANGELOG.md](CHANGELOG.md).

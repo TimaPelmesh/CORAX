@@ -223,17 +223,7 @@ std::string build_inventory_payload(const AgentConfig& cfg, const OsInfo& os) {
   j.begin_object();
 
   // ---- core ----
-  std::string hostname;
-  {
-    wchar_t buf[256];
-    DWORD n = 256;
-    if (GetComputerNameExW(ComputerNameDnsHostname, buf, &n)) hostname = util::narrow(buf);
-    else {
-      n = 256;
-      GetComputerNameW(buf, &n);
-      hostname = util::narrow(buf);
-    }
-  }
+  std::string hostname = util::computer_hostname();
 
   std::string serial, mfr, model, mb_mfr, mb_prod, cpu, gpu;
   double ram_gb = 0;

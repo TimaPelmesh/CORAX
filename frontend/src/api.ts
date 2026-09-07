@@ -1792,14 +1792,16 @@ export const api = {
   ticketHandlerRuns: (limit = 50) =>
     request<TicketHandlerRun[]>(`${API_PREFIX}/ticket-handler/runs?limit=${limit}`),
 
-  ticketHandlerPublicContext: (hostname: string, secret?: string) => {
-    const q = new URLSearchParams({ hostname })
+  ticketHandlerPublicContext: (hostname?: string, secret?: string) => {
+    const q = new URLSearchParams()
+    if (hostname?.trim()) q.set('hostname', hostname.trim())
     if (secret) q.set('secret', secret)
-    return request<TicketHandlerPublicContext>(`${API_PREFIX}/ticket-handler/public/context?${q}`)
+    const qs = q.toString()
+    return request<TicketHandlerPublicContext>(`${API_PREFIX}/ticket-handler/public/context${qs ? `?${qs}` : ''}`)
   },
 
   ticketHandlerIntake: (body: {
-    hostname: string
+    hostname?: string
     title: string
     description?: string
     secret?: string
@@ -2022,14 +2024,18 @@ export const api = {
     },
   ) => request<ServiceRequestRow>(`${API_PREFIX}/service-requests/${id}`, { method: 'PATCH', json: body }),
 
-  suggestServiceRequestAi: (id: number) =>
-    request<{
+  suggestServiceRequestAi: (id: number, opts?: { persist?: boolean }) => {
+    const persist = opts?.persist !== false
+    return request<{
       ok: boolean
       category: string | null
       title_suggestion: string | null
       model: string | null
       error_detail: string | null
-    }>(`${API_PREFIX}/service-requests/${id}/ai-suggest`, { method: 'POST' }),
+    }>(`${API_PREFIX}/service-requests/${id}/ai-suggest?persist=${persist ? 'true' : 'false'}`, {
+      method: 'POST',
+    })
+  },
 
   deleteServiceRequest: (id: number) =>
     request<void>(`${API_PREFIX}/service-requests/${id}/delete`, { method: 'POST' }),

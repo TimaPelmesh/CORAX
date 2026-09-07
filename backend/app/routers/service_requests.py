@@ -256,20 +256,23 @@ async def patch_service_request(
 @router.post("/{request_id}/ai-suggest", response_model=ServiceRequestAiSuggestOut)
 async def ai_suggest_service_request(
     request_id: int,
+    persist: bool = Query(default=True),
     _: User = Depends(get_current_editor_or_superuser),
     db: AsyncSession = Depends(get_db),
 ):
-    """Re-run CORAX AI classify: set category + ai_title_suggestion (does not overwrite title)."""
-    from app.models import TicketHandlerConfig
+    """Classify category + suggest a cleaner title. Does not overwrite title.
+
+    persist=false is used by the close dialog: show recommendations first,
+    apply them only when the operator confirms close.
+    """
+    from app.routers.ticket_handler import _get_or_create_config
     from app.ticket_handler_runtime import enrich_service_request
 
     row = await db.get(ServiceRequest, request_id)
     if not row:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
-    cfg = await db.scalar(select(TicketHandlerConfig).where(TicketHandlerConfig.id == 1).limit(1))
-    if cfg is None:
-        raise HTTPException(status_code=400, detail="Обработчик заявок не настроен")
-    result = await enrich_service_request(db, cfg=cfg, request_id=request_id, persist=True)
+    cfg = await _get_or_create_config(db)
+    result = await enrich_service_request(db, cfg=cfg, request_id=request_id, persist=persist)
     return ServiceRequestAiSuggestOut(
         ok=result.ok,
         category=result.category,

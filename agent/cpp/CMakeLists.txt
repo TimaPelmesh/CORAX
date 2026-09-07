@@ -32,6 +32,8 @@ add_executable(CORAX-Agent
   src/collect.cpp
   src/collect_extra.cpp
   src/ui_splash.cpp
+  src/crash_handler.cpp
+  src/desktop_shortcut.cpp
   resources/CORAX-Agent.rc
 )
 
@@ -51,7 +53,11 @@ if(MSVC)
     WINVER=0x0601
     NTDDI_VERSION=0x06010000
   )
-  target_compile_options(CORAX-Agent PRIVATE /W3 /EHsc /utf-8)
+  # /EHa (asynchronous EH) is required so `_set_se_translator` in
+  # crash_handler.cpp can turn Windows SEH (access violation, WMI provider
+  # crashes, ...) into std::runtime_error. Without /EHa the translator is a
+  # no-op and worker-thread faults kill the process silently after splash.
+  target_compile_options(CORAX-Agent PRIVATE /W3 /EHa /utf-8)
   target_link_libraries(CORAX-Agent PRIVATE
     ole32
     oleaut32
@@ -67,6 +73,8 @@ if(MSVC)
     comctl32
     gdi32
     user32
+    dbghelp    # MiniDumpWriteDump on crash
+    psapi      # EnumProcessModules for "crashed in module X+offset" log
   )
   set_target_properties(CORAX-Agent PROPERTIES WIN32_EXECUTABLE TRUE)
   # Keep int main() entry while using WINDOWS subsystem (no black console).

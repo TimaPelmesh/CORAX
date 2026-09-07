@@ -33,6 +33,7 @@ struct AgentConfig {
   int services_max = 400;
   int patches_max = 500;
   bool silent = false;  // false = show console progress on double-click; use --silent for Task Scheduler
+  bool helpdesk_shortcut = true;  // drop «Заявка CORAX» on the desktop with /h#pc=<hostname>
 };
 
 AgentConfig load_agent_config();

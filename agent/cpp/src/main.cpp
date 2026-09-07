@@ -1,5 +1,7 @@
 #include "collect.hpp"
 #include "config.hpp"
+#include "crash_handler.hpp"
+#include "desktop_shortcut.hpp"
 #include "http.hpp"
 #include "osdetect.hpp"
 #include "secure_config.hpp"
@@ -99,6 +101,10 @@ auto run_with_ui(AgentSplash& splash, bool use_splash, int progress_floor, int p
   std::exception_ptr eptr;
   R result{};
   std::thread worker([&] {
+    // Convert SEH (WMI provider AV, DPAPI fault, WinHTTP schannel bug, …)
+    // into a std::runtime_error inside the worker so the catch(...) below
+    // rethrows a readable message instead of the process disappearing.
+    install_seh_translator();
     try {
       result = fn();
     } catch (...) {
@@ -128,6 +134,12 @@ auto run_with_ui(AgentSplash& splash, bool use_splash, int progress_floor, int p
 }  // namespace
 
 int main(int argc, char** argv) {
+  // Must be first: any subsequent line (regex in load_agent_config, DPAPI,
+  // WMI, GDI splash, WinHTTP) can raise SEH, and without a handler the
+  // process just vanishes after splash — the exact symptom users report.
+  install_process_crash_handler(log_path());
+  install_seh_translator();
+
   RunOpts opt = parse_args(argc, argv);
   AgentConfig cfg = load_agent_config();
 
@@ -205,6 +217,13 @@ int main(int argc, char** argv) {
 
   OsInfo os = detect_os();
   say("os=" + os.family + " / " + os.arch + " build " + std::to_string(os.build), console_out);
+
+  const std::string hostname = util::computer_hostname();
+  if (!hostname.empty()) say("hostname=" + hostname, console_out);
+  if (cfg.helpdesk_shortcut) {
+    const std::string shortcut = ensure_helpdesk_shortcut(cfg.server_url, hostname);
+    say(shortcut, console_out);
+  }
 
   say("1/2 Сбор инвентаризации…", console_out);
 

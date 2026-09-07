@@ -28,10 +28,11 @@ No build script can guarantee zero detections. For production distribution:
 - publish stable version metadata and hashes;
 - submit false positives to the antivirus vendor instead of adding exclusions.
 
-FILES
------
-CORAX-Agent.exe                 Native Win7/10/11 x64 agent
-agent.json                     Public configuration
-agent.provision.json           One-time sensitive bootstrap (deleted on first run)
-agent.cred                     DPAPI credential (created on first run)
-SHA256SUMS.txt                 Integrity hash for the immutable EXE
+- CORAX-Agent.exe                 Native Win7/10/11 x64 agent
+- agent.json                     Public configuration
+- agent.provision.json           One-time sensitive bootstrap (deleted on first run)
+- agent.cred                     DPAPI credential (created on first run)
+- SHA256SUMS.txt                 Integrity hash for the immutable EXE
+
+On first inventory run the agent writes a desktop shortcut "Заявка CORAX"
+that opens /h#pc=<this-PC-name>. Disable with "helpdesk_shortcut": false in agent.json.

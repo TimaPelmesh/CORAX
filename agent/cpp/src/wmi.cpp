@@ -5,7 +5,16 @@
 #include <windows.h>
 #include <comdef.h>
 #include <Wbemidl.h>
+#include <exception>
 #pragma comment(lib, "wbemuuid.lib")
+
+namespace {
+// Real WMI query body. Split out so `WmiSession::query` can wrap it in a
+// try/catch: with the process-wide `_set_se_translator` (crash_handler.cpp)
+// this also catches WMI provider access violations, which happen in the
+// wild for BitLocker / SecurityCenter2 / MSFT_PhysicalDisk on some builds.
+std::vector<WmiRowMap> query_impl(bool ready, const std::wstring& ns, const std::wstring& wql);
+}  // namespace
 
 WmiSession::WmiSession() {
   HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -23,8 +32,22 @@ WmiSession::~WmiSession() {
 }
 
 std::vector<WmiRowMap> WmiSession::query(const std::wstring& ns, const std::wstring& wql) {
+  try {
+    return query_impl(ready_, ns, wql);
+  } catch (const std::exception&) {
+    // Translated SEH from a WMI provider (ACCESS_VIOLATION etc.) or an OOM
+    // on a giant result set. Either way — return empty so the caller can
+    // fall back or degrade the module instead of taking down the process.
+    return {};
+  } catch (...) {
+    return {};
+  }
+}
+
+namespace {
+std::vector<WmiRowMap> query_impl(bool ready, const std::wstring& ns, const std::wstring& wql) {
   std::vector<WmiRowMap> out;
-  if (!ready_) return out;
+  if (!ready) return out;
 
   IWbemLocator* locator = nullptr;
   HRESULT hr = CoCreateInstance(CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_IWbemLocator,
@@ -98,3 +121,4 @@ std::vector<WmiRowMap> WmiSession::query(const std::wstring& ns, const std::wstr
   locator->Release();
   return out;
 }
+}  // namespace

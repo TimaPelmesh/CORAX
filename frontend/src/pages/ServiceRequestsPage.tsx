@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   api,
@@ -10,7 +11,7 @@ import {
   type UserDirectoryItem,
 } from '../api'
 import { useAuth } from '../AuthContext'
-import { IconPencil, IconTrash } from '../components/icons'
+import { IconCheckBadge, IconPencil, IconTrash } from '../components/icons'
 import { collectCategoryPaths } from '../requestCategories'
 import { useLocale, useT } from '../i18n/LocaleContext'
 import { useToast } from '../ToastContext'
@@ -167,6 +168,16 @@ export function ServiceRequestsPage() {
   const [editDeleting, setEditDeleting] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('')
   const [reportOpen, setReportOpen] = useState(false)
+  const [closeDialog, setCloseDialog] = useState<{
+    row: ServiceRequestRow
+    aiBusy: boolean
+    aiError: string | null
+    suggestedTitle: string | null
+    suggestedCategory: string | null
+    applyTitle: boolean
+    applyCategory: boolean
+    saving: boolean
+  } | null>(null)
   const [statsFrom, setStatsFrom] = useState<string>('')
   const [statsTo, setStatsTo] = useState<string>('')
   const [statsBasis, setStatsBasis] = useState<StatsBasis>('opened')
@@ -1452,9 +1463,90 @@ export function ServiceRequestsPage() {
     }
   }
 
+  const isCloseableStatus = (status: string) => status === 'open' || status === 'in_progress'
+
+  async function openCloseDialog(row: ServiceRequestRow) {
+    if (!canManageRequests || !isCloseableStatus(row.status)) return
+    setCloseDialog({
+      row,
+      aiBusy: true,
+      aiError: null,
+      suggestedTitle: null,
+      suggestedCategory: null,
+      applyTitle: false,
+      applyCategory: false,
+      saving: false,
+    })
+    try {
+      const out = await api.suggestServiceRequestAi(row.id, { persist: false })
+      const titleSug = (out.title_suggestion || '').trim()
+      const catSug = (out.category || '').trim()
+      const titleChanged = Boolean(titleSug) && titleSug !== (row.title || '').trim()
+      const catChanged = Boolean(catSug) && catSug !== (row.category || '').trim()
+      setCloseDialog((prev) =>
+        prev && prev.row.id === row.id
+          ? {
+              ...prev,
+              aiBusy: false,
+              aiError: !out.ok && out.error_detail ? out.error_detail : null,
+              suggestedTitle: titleSug || null,
+              suggestedCategory: catSug || null,
+              applyTitle: titleChanged,
+              applyCategory: catChanged || (Boolean(catSug) && !(row.category || '').trim()),
+            }
+          : prev,
+      )
+    } catch (e) {
+      setCloseDialog((prev) =>
+        prev && prev.row.id === row.id
+          ? {
+              ...prev,
+              aiBusy: false,
+              aiError: e instanceof Error ? e.message : String(e),
+            }
+          : prev,
+      )
+    }
+  }
+
+  async function confirmCloseDialog() {
+    if (!closeDialog || closeDialog.saving) return
+    setCloseDialog({ ...closeDialog, saving: true })
+    try {
+      const patch: Parameters<typeof api.updateServiceRequest>[1] = {
+        status: 'done',
+        closed_at: new Date().toISOString(),
+      }
+      if (closeDialog.applyTitle && closeDialog.suggestedTitle) {
+        patch.title = closeDialog.suggestedTitle
+      }
+      if (closeDialog.applyCategory && closeDialog.suggestedCategory) {
+        patch.category = closeDialog.suggestedCategory
+      }
+      const updated = await api.updateServiceRequest(closeDialog.row.id, patch)
+      setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+      if (editingRequestId === updated.id) {
+        const returnPath = editingReturnPath
+        const returnPage = editingReturnPage
+        setTitle('')
+        setDescription('')
+        resetCreateFormAfterSubmit()
+        if (returnPath && returnPath !== '/requests') navigateBackToList(returnPath, returnPage)
+      }
+      setCloseDialog(null)
+      toast.ok(t('requests.close.done'))
+      void refreshSummary()
+      window.dispatchEvent(new Event('corax:assignee-notifications'))
+    } catch (e) {
+      setCloseDialog((prev) => (prev ? { ...prev, saving: false } : prev))
+      toast.error(e instanceof Error ? e.message : t('requests.errors.generic'))
+    }
+  }
+
   // startDatesEdit/saveDatesEdit removed (will re-introduce in modal if required)
 
   return (
+    <>
     <div>
       <div>
         <section className="min-w-0">
@@ -1516,6 +1608,19 @@ export function ServiceRequestsPage() {
                           {t('requests.create.deleteRequest')}
                         </button>
                       )
+                    ) : null}
+                    {editingRequestId != null && canManageRequests && isCloseableStatus(createStatus) ? (
+                      <button
+                        type="button"
+                        disabled={saving || editDeleting}
+                        className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium hover:bg-[var(--color-bg-muted)] disabled:opacity-50"
+                        onClick={() => {
+                          const row = rows.find((r) => r.id === editingRequestId)
+                          if (row) void openCloseDialog(row)
+                        }}
+                      >
+                        {t('requests.close.button')}
+                      </button>
                     ) : null}
                     <button
                       type="submit"
@@ -2055,9 +2160,10 @@ export function ServiceRequestsPage() {
           </h2>
 
           <div>
-            {reportOpen ? (
+            {reportOpen
+              ? createPortal(
               <div
-                className="fixed inset-0 z-[90] flex items-end justify-center bg-neutral-950/35 p-3 backdrop-blur-[2px] sm:items-center"
+                className="app-modal-layer fixed inset-0 z-[200] flex items-end justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-6"
                 role="dialog"
                 aria-modal="true"
                 aria-label={t('requests.database.reportModalAria')}
@@ -2189,8 +2295,10 @@ export function ServiceRequestsPage() {
                     </p>
                   </div>
                 </div>
-              </div>
-            ) : null}
+              </div>,
+              document.body,
+            )
+            : null}
 
             {loading ? (
               <p className="rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] py-14 text-center text-sm text-[var(--color-fg-muted)]">
@@ -2206,7 +2314,7 @@ export function ServiceRequestsPage() {
               </p>
             ) : (
               <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm ring-1 ring-slate-200/25">
-                <div className="overflow-x-auto">
+                <div className="app-scroll max-h-[min(28rem,55vh)] overflow-auto overscroll-contain [scrollbar-gutter:stable]">
                   <table className="min-w-[980px] w-full max-sm:min-w-[36rem] border-collapse text-left text-sm">
                     <thead className="sticky top-0 z-10 bg-[var(--color-surface-muted)]">
                       <tr className="border-b border-[var(--color-border)] text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--color-fg-muted)]">
@@ -2230,6 +2338,7 @@ export function ServiceRequestsPage() {
                           {t('requests.database.table.priority')}{sortHint('priority_desc')}
                         </th>
                         <th className="app-hide-xs px-3 py-2.5">{t('requests.database.table.category')}</th>
+                        <th className="px-3 py-2.5 print:hidden">{t('requests.database.table.actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2308,6 +2417,30 @@ export function ServiceRequestsPage() {
                               </td>
                               <td className="app-hide-xs px-3 py-3 text-xs text-[var(--color-fg)]">
                                 <span className="line-clamp-2">{row.category || '—'}</span>
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 print:hidden" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    className="app-btn app-btn-secondary !min-h-0 !px-1.5 !py-1"
+                                    title={t('requests.database.table.editAction')}
+                                    aria-label={t('requests.database.table.editAction')}
+                                    onClick={() => openRequestForEdit(row)}
+                                  >
+                                    <IconPencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  {canManageRequests && isCloseableStatus(row.status) ? (
+                                    <button
+                                      type="button"
+                                      className="app-btn app-btn-secondary !min-h-0 !px-1.5 !py-1"
+                                      title={t('requests.database.table.closeAction')}
+                                      aria-label={t('requests.database.table.closeAction')}
+                                      onClick={() => void openCloseDialog(row)}
+                                    >
+                                      <IconCheckBadge className="h-3.5 w-3.5" />
+                                    </button>
+                                  ) : null}
+                                </div>
                               </td>
                         </tr>
                       ))}
@@ -3118,5 +3251,129 @@ export function ServiceRequestsPage() {
         </section>
       </div>
     </div>
+    {closeDialog
+      ? createPortal(
+      <div
+        className="app-modal-layer fixed inset-0 z-[200] flex items-end justify-center bg-black/45 p-3 backdrop-blur-[2px] sm:items-center sm:p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('requests.close.dialogAria')}
+        onClick={() => {
+          if (!closeDialog.saving && !closeDialog.aiBusy) setCloseDialog(null)
+        }}
+      >
+        <div
+          className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2 className="text-lg font-semibold tracking-tight text-[var(--color-fg)]">
+            {t('requests.close.heading', { no: requestDisplayNo(closeDialog.row) })}
+          </h2>
+          <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-fg-muted)]">
+            {t('requests.close.hint')}
+          </p>
+
+          <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-muted)]/40 px-3.5 py-3 text-sm">
+            <div className="text-[11px] uppercase tracking-wide text-[var(--color-fg-subtle)]">
+              {t('requests.close.currentTitle')}
+            </div>
+            <div className="mt-0.5 font-medium text-[var(--color-fg)]">{closeDialog.row.title}</div>
+            <div className="mt-2 text-[11px] uppercase tracking-wide text-[var(--color-fg-subtle)]">
+              {t('requests.close.currentCategory')}
+            </div>
+            <div className="mt-0.5 text-[var(--color-fg)]">{closeDialog.row.category || '—'}</div>
+          </div>
+
+          {closeDialog.aiBusy ? (
+            <p className="mt-4 text-sm text-[var(--color-fg-muted)]">{t('requests.close.aiBusy')}</p>
+          ) : null}
+          {closeDialog.aiError && !closeDialog.aiBusy ? (
+            <p className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+              {t('requests.close.aiFailed')}
+              <span className="mt-1 block text-xs opacity-80">{closeDialog.aiError}</span>
+            </p>
+          ) : null}
+
+          {!closeDialog.aiBusy ? (
+            <div className="mt-4 grid gap-3">
+              <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] px-3.5 py-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={closeDialog.applyTitle}
+                  disabled={!closeDialog.suggestedTitle || closeDialog.suggestedTitle === closeDialog.row.title.trim()}
+                  onChange={(e) =>
+                    setCloseDialog((prev) => (prev ? { ...prev, applyTitle: e.target.checked } : prev))
+                  }
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium uppercase tracking-wide text-[var(--color-fg-subtle)]">
+                    {t('requests.close.suggestedTitle')}
+                  </span>
+                  {closeDialog.suggestedTitle && closeDialog.suggestedTitle !== closeDialog.row.title.trim() ? (
+                    <span className="mt-0.5 block font-medium text-[var(--color-fg)]">{closeDialog.suggestedTitle}</span>
+                  ) : (
+                    <span className="mt-0.5 block text-[var(--color-fg-muted)]">{t('requests.close.noTitleChange')}</span>
+                  )}
+                  {closeDialog.suggestedTitle && closeDialog.suggestedTitle !== closeDialog.row.title.trim() ? (
+                    <span className="mt-1 block text-xs text-[var(--color-fg-subtle)]">{t('requests.close.applyTitle')}</span>
+                  ) : null}
+                </span>
+              </label>
+              <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] px-3.5 py-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={closeDialog.applyCategory}
+                  disabled={!closeDialog.suggestedCategory}
+                  onChange={(e) =>
+                    setCloseDialog((prev) => (prev ? { ...prev, applyCategory: e.target.checked } : prev))
+                  }
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-medium uppercase tracking-wide text-[var(--color-fg-subtle)]">
+                    {t('requests.close.suggestedCategory')}
+                  </span>
+                  {closeDialog.suggestedCategory ? (
+                    <span className="mt-0.5 block font-medium text-[var(--color-fg)]">
+                      {closeDialog.suggestedCategory}
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 block text-[var(--color-fg-muted)]">{t('requests.close.noCategory')}</span>
+                  )}
+                  {closeDialog.suggestedCategory ? (
+                    <span className="mt-1 block text-xs text-[var(--color-fg-subtle)]">
+                      {t('requests.close.applyCategory')}
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+            </div>
+          ) : null}
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              disabled={closeDialog.saving}
+              className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium hover:bg-[var(--color-bg-muted)] disabled:opacity-50"
+              onClick={() => setCloseDialog(null)}
+            >
+              {t('requests.close.cancel')}
+            </button>
+            <button
+              type="button"
+              disabled={closeDialog.saving || closeDialog.aiBusy}
+              className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              onClick={() => void confirmCloseDialog()}
+            >
+              {closeDialog.saving ? t('requests.close.confirming') : t('requests.close.confirm')}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )
+    : null}
+  </>
   )
 }

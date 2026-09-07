@@ -1072,14 +1072,14 @@ class TicketHandlerStatsOut(BaseModel):
 
 class TicketHandlerPublicContextOut(BaseModel):
     enabled: bool
-    hostname: str
+    hostname: str = ""
     computer_id: int | None = None
     location: str | None = None
     requester_hint: str | None = None
 
 
 class TicketHandlerIntakeRequest(BaseModel):
-    hostname: str = Field(min_length=1, max_length=255)
+    hostname: str = Field(default="", max_length=255)
     title: str = Field(min_length=3, max_length=255)
     description: str | None = Field(default=None, max_length=10_000)
     secret: str | None = Field(default=None, max_length=255)

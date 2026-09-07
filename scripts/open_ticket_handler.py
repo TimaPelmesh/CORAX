@@ -16,10 +16,9 @@ def main() -> int:
         base = sys.argv[1].rstrip("/")
     if len(sys.argv) > 2 and sys.argv[2].strip():
         hostname = sys.argv[2].strip()
-    if not hostname:
-        print("Set COMPUTERNAME or pass: open_ticket_handler.py http://CORAX:3000 PC-NAME", file=sys.stderr)
-        return 2
-    url = f"{base}/h#pc={quote(hostname)}"
+    url = f"{base}/h"
+    if hostname:
+        url = f"{base}/h#pc={quote(hostname)}"
     print(url)
     webbrowser.open(url)
     return 0

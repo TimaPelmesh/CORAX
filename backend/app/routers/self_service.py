@@ -1,5 +1,4 @@
 import ipaddress
-import json
 import secrets
 from datetime import datetime, timezone
 
@@ -8,7 +7,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import hash_password
-from app.routers.agent import _reported_assigned_user
 from app.config import settings
 from app.database import get_db
 from app.models import Computer, ServiceRequest, User, service_request_assignees
@@ -17,6 +15,7 @@ from app.request_categories_defaults import DEFAULT_REQUEST_CATEGORIES
 from app.schemas import SelfServiceContextOut, SelfServiceRequestCreate, SelfServiceRequestOut
 from app.search_index import index_service_request
 from app.service_request_tickets import ensure_ticket_no
+from app.ticket_handler_runtime import resolve_computer, resolve_requester
 
 router = APIRouter(prefix="/self-service", tags=["self-service"])
 
@@ -35,8 +34,7 @@ def _require_lan(request: Request) -> None:
 
 
 async def _computer(db: AsyncSession, hostname: str) -> Computer:
-    normalized = hostname.strip()
-    row = await db.scalar(select(Computer).where(func.lower(Computer.hostname) == normalized.lower()).limit(1))
+    row = await resolve_computer(db, hostname)
     if row is None or row.last_report_at is None:
         raise HTTPException(status_code=404, detail="ПК не найден в актуальном инвентаре")
     return row
@@ -71,7 +69,7 @@ async def context(
     return SelfServiceContextOut(
         hostname=computer.hostname,
         computer_id=computer.id,
-        location=None,
+        location=(computer.location or "").strip() or None,
         categories=list(DEFAULT_REQUEST_CATEGORIES),
     )
 
@@ -85,21 +83,8 @@ async def create_request(
 ):
     _require_lan(request)
     computer = await _computer(db, body.hostname)
-    assigned_user = await db.get(User, computer.assigned_user_id) if computer.assigned_user_id else None
-    if assigned_user is None and computer.raw_payload:
-        try:
-            payload = json.loads(computer.raw_payload)
-            extended = payload.get("extended") if isinstance(payload, dict) else None
-        except json.JSONDecodeError:
-            extended = None
-        assigned_user = await _reported_assigned_user(db, extended if isinstance(extended, dict) else None)
-        if assigned_user is not None:
-            computer.assigned_user_id = assigned_user.id
-    requester_name = (
-        (assigned_user.full_name or assigned_user.username).strip()
-        if assigned_user is not None
-        else f"ПК {computer.hostname}"
-    )
+    requester_name = await resolve_requester(db, computer, computer.hostname)
+    loc = (computer.location or "").strip()
     bot = await _bot_user(db)
     now = datetime.now(timezone.utc)
     row = ServiceRequest(
@@ -109,7 +94,7 @@ async def create_request(
         priority="normal",
         requester_name=requester_name,
         category=(body.category or settings.self_service_default_category).strip()[:255],
-        location=None,
+        location=loc or None,
         computer_id=computer.id,
         created_by_id=bot.id,
         opened_at=now,

@@ -17,6 +17,51 @@ function Log([string]$Msg) {
     Write-Host $Msg
 }
 
+function Install-CoraxHelpdeskShortcut {
+    param(
+        [string]$ServerUrl,
+        [string]$Hostname,
+        [string]$IconPath = ''
+    )
+    if ([string]::IsNullOrWhiteSpace($ServerUrl)) { return }
+    $hostName = ([string]$Hostname).Trim()
+    if (-not $hostName -or $hostName -eq 'unknown-host') { return }
+    $base = $ServerUrl.TrimEnd('/')
+    $pc = [uri]::EscapeDataString($hostName)
+    $url = "$base/h#pc=$pc"
+    $body = "[InternetShortcut]`r`nURL=$url`r`n"
+    if ($IconPath -and (Test-Path -LiteralPath $IconPath)) {
+        $body += "IconFile=$IconPath`r`nIconIndex=0`r`n"
+    }
+    $name = 'Заявка CORAX.url'
+    $dirs = @()
+    $pub = [Environment]::GetFolderPath('CommonDesktopDirectory')
+    if ($pub) { $dirs += $pub }
+    $who = [string]$env:USERNAME
+    $isSvc = $who -match '^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE)$'
+    if (-not $isSvc) {
+        $userDesk = [Environment]::GetFolderPath('Desktop')
+        if ($userDesk) { $dirs += $userDesk }
+    } else {
+        $usersRoot = Split-Path -Parent $env:PUBLIC
+        if (-not $usersRoot) { $usersRoot = 'C:\Users' }
+        Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '^(Public|Default|Default User|All Users|WDAGUtilityAccount)$' } |
+            ForEach-Object {
+                $d = Join-Path $_.FullName 'Desktop'
+                if (Test-Path -LiteralPath $d) { $dirs += $d }
+            }
+    }
+    $written = 0
+    foreach ($d in ($dirs | Select-Object -Unique)) {
+        try {
+            [System.IO.File]::WriteAllText((Join-Path $d $name), $body, [Text.UTF8Encoding]::new($false))
+            $written++
+        } catch { }
+    }
+    if ($written -gt 0) { Log "Helpdesk shortcut: $url ($written)" }
+}
+
 function Get-SanitizedAgentText {
     param([string]$Value)
     if ($null -eq $Value) { return $null }
@@ -556,6 +601,8 @@ try {
         software                = @($sw)
         peripherals             = @($periph)
     }
+
+    try { Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $payload.hostname } catch { }
 
     $json = ($payload | ConvertTo-Json -Depth 8 -Compress)
     Set-BuddyProgress '[5/5] JSON ready...' 88

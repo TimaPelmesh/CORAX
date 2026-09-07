@@ -2,9 +2,13 @@
 #include "util.hpp"
 #include <windows.h>
 #include <winhttp.h>
+#include <exception>
 #pragma comment(lib, "winhttp.lib")
 
 namespace {
+
+HttpResult http_post_json_impl(const std::string& base_url, const std::string& path,
+                               const std::string& bearer_token, const std::string& json_body);
 
 bool parse_url(const std::string& url, bool& https, std::wstring& host, INTERNET_PORT& port,
                std::wstring& path) {
@@ -30,6 +34,28 @@ bool parse_url(const std::string& url, bool& https, std::wstring& host, INTERNET
 
 HttpResult http_post_json(const std::string& base_url, const std::string& path,
                           const std::string& bearer_token, const std::string& json_body) {
+  // WinHTTP → schannel occasionally raises SEH on certain proxy chains and
+  // captive-portal responses. `_set_se_translator` (installed in worker
+  // threads) makes those surface as std::runtime_error; catch here so the
+  // splash reports a readable "Отправка не удалась" instead of vanishing.
+  try {
+    return http_post_json_impl(base_url, path, bearer_token, json_body);
+  } catch (const std::exception& e) {
+    HttpResult r;
+    r.ok = false;
+    r.error = std::string("HTTP crash: ") + e.what();
+    return r;
+  } catch (...) {
+    HttpResult r;
+    r.ok = false;
+    r.error = "HTTP crash: unknown";
+    return r;
+  }
+}
+
+namespace {
+HttpResult http_post_json_impl(const std::string& base_url, const std::string& path,
+                               const std::string& bearer_token, const std::string& json_body) {
   HttpResult r;
   bool https = false;
   std::wstring host, url_path;
@@ -132,3 +158,4 @@ HttpResult http_post_json(const std::string& base_url, const std::string& path,
   if (!r.ok && r.error.empty()) r.error = "HTTP " + std::to_string(status);
   return r;
 }
+}  // namespace

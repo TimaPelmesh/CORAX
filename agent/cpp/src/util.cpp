@@ -130,4 +130,17 @@ bool is_elevated() {
   return elev == TRUE;
 }
 
+std::string computer_hostname() {
+  wchar_t buf[256];
+  DWORD n = 256;
+  if (GetComputerNameExW(ComputerNameDnsHostname, buf, &n) && buf[0]) {
+    return trim(narrow(buf));
+  }
+  n = 256;
+  if (GetComputerNameW(buf, &n) && buf[0]) {
+    return trim(narrow(buf));
+  }
+  return {};
+}
+
 }  // namespace util

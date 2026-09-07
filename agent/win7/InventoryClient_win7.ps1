@@ -9,6 +9,54 @@ function Log([string]$Msg) {
     Write-Host ("[{0}] {1}" -f $ts, $Msg)
 }
 
+function Install-CoraxHelpdeskShortcut {
+    param(
+        [string]$ServerUrl,
+        [string]$Hostname
+    )
+    if (-not $ServerUrl -or $ServerUrl.Trim().Length -eq 0) { return }
+    if (-not $Hostname -or $Hostname.Trim().Length -eq 0) { return }
+    if ($Hostname.Trim() -eq 'unknown-host') { return }
+    $base = $ServerUrl.TrimEnd('/')
+    $pc = [uri]::EscapeDataString($Hostname.Trim())
+    $url = $base + '/h#pc=' + $pc
+    $nl = "`r`n"
+    $body = '[InternetShortcut]' + $nl + 'URL=' + $url + $nl
+    $name = 'Заявка CORAX.url'
+    $dirs = @()
+    try { $pub = [Environment]::GetFolderPath('CommonDesktopDirectory'); if ($pub) { $dirs += $pub } } catch { }
+    $who = [string]$env:USERNAME
+    $isSvc = $false
+    if ($who -eq 'SYSTEM' -or $who -eq 'LOCAL SERVICE' -or $who -eq 'NETWORK SERVICE') { $isSvc = $true }
+    if (-not $isSvc) {
+        try { $userDesk = [Environment]::GetFolderPath('Desktop'); if ($userDesk) { $dirs += $userDesk } } catch { }
+    } else {
+        $usersRoot = 'C:\Users'
+        try { if ($env:PUBLIC) { $usersRoot = Split-Path -Parent $env:PUBLIC } } catch { }
+        try {
+            Get-ChildItem -Path $usersRoot -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer } | ForEach-Object {
+                $skip = $false
+                $n = $_.Name
+                if ($n -eq 'Public' -or $n -eq 'Default' -or $n -eq 'Default User' -or $n -eq 'All Users') { $skip = $true }
+                if (-not $skip) {
+                    $d = Join-Path $_.FullName 'Desktop'
+                    if (Test-Path $d) { $dirs += $d }
+                }
+            }
+        } catch { }
+    }
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $written = 0
+    foreach ($d in $dirs) {
+        try {
+            $path = Join-Path $d $name
+            [System.IO.File]::WriteAllText($path, $body, $utf8)
+            $written++
+        } catch { }
+    }
+    if ($written -gt 0) { Log ("Helpdesk shortcut: " + $url + " (" + $written + ")") }
+}
+
 function Get-QueueFilePath {
     $root = $env:ProgramData
     if (-not $root -or $root.Trim().Length -eq 0) { $root = $env:TEMP }
@@ -558,6 +606,7 @@ $paths = @('/api/v1/agent/inventory', '/api/agent/inventory')
 Log "[1/5] Collect: machine + OS + CPU + MAC ..."
 $hostname = FirstNonEmpty @($env:COMPUTERNAME, (Get-WmiText 'Win32_ComputerSystem' 'Name'))
 if (-not $hostname -or $hostname.Trim().Length -eq 0) { $hostname = 'unknown-host' }
+try { Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $hostname } catch { }
 $osName = Safe-Call "WMI OS Caption" { Get-WmiText 'Win32_OperatingSystem' 'Caption' }
 $osVer = Safe-Call "WMI OS Version" { Get-WmiText 'Win32_OperatingSystem' 'Version' }
 $osBuild = Safe-Call "WMI OS BuildNumber" { Get-WmiText 'Win32_OperatingSystem' 'BuildNumber' }

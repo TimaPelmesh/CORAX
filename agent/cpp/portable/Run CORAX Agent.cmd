@@ -1,5 +1,5 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-start "" /wait "CORAX-Agent.exe"
+call "%~dp0corax_run.cmd"
 exit /b %errorlevel%
