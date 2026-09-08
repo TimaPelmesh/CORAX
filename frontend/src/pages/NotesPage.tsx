@@ -1,11 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { api, type NoteListItem, type NoteRow, type User } from '../api'
+import { api, type NoteColor, type NoteListItem, type NoteMark, type NoteRow, type User } from '../api'
 import { useAuth } from '../AuthContext'
+import { DashboardCalendar } from '../components/dashboard/DashboardCalendar'
 import { IconBook, IconClose, IconPencil, IconTrash } from '../components/icons'
 import { useT } from '../i18n/LocaleContext'
 import { useToast } from '../ToastContext'
 import { formatNotePlanRange } from '../lib/notesPlan'
+
+const NOTE_COLORS: NoteColor[] = ['blue', 'green', 'amber', 'rose', 'violet', 'slate']
+const NOTE_MARKS: NoteMark[] = ['dot', 'flag', 'star']
+
+const COLOR_SWATCH: Record<NoteColor, string> = {
+  blue: 'bg-sky-500',
+  green: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+  violet: 'bg-violet-500',
+  slate: 'bg-slate-500',
+}
+
+const MARK_GLYPH: Record<NoteMark, string> = {
+  dot: '●',
+  flag: '⚑',
+  star: '★',
+}
 
 function execCmd(cmd: string, value?: string) {
   try {
@@ -31,6 +50,9 @@ export function NotesPage() {
   const [planStart, setPlanStart] = useState('')
   const [planEnd, setPlanEnd] = useState('')
   const [sameDayEnd, setSameDayEnd] = useState(false)
+  const [color, setColor] = useState<NoteColor | null>(null)
+  const [mark, setMark] = useState<NoteMark | null>(null)
+  const [calendarTick, setCalendarTick] = useState(0)
   const [shareDraft, setShareDraft] = useState<{ user_id: number; can_edit: boolean }[]>([])
   const [saving, setSaving] = useState(false)
   const [saveLabel, setSaveLabel] = useState<string | null>(null)
@@ -40,11 +62,15 @@ export function NotesPage() {
   const titleRef = useRef(title)
   const planStartRef = useRef(planStart)
   const planEndRef = useRef(planEnd)
+  const colorRef = useRef(color)
+  const markRef = useRef(mark)
   const noteRef = useRef(note)
 
   titleRef.current = title
   planStartRef.current = planStart
   planEndRef.current = planEnd
+  colorRef.current = color
+  markRef.current = mark
   noteRef.current = note
 
   const reloadList = useCallback(async () => {
@@ -93,6 +119,8 @@ export function NotesPage() {
         setPlanStart(start)
         setPlanEnd(end)
         setSameDayEnd(Boolean(start && end && start === end))
+        setColor(row.color ?? null)
+        setMark(row.mark ?? null)
         setShareDraft(row.shares.map((s) => ({ user_id: s.user_id, can_edit: s.can_edit })))
         skipNextBodySync.current = true
         if (editorRef.current) editorRef.current.innerHTML = row.body_html || ''
@@ -128,9 +156,12 @@ export function NotesPage() {
             body_html,
             plan_start: planStartRef.current || null,
             plan_end: planEndRef.current || null,
+            color: colorRef.current,
+            mark: markRef.current,
           })
           setNote(updated)
           setSaveLabel(t('notes.saved'))
+          setCalendarTick((n) => n + 1)
           await reloadList()
         } catch (e) {
           toast.error(e instanceof Error ? e.message : t('notes.saveFailed'))
@@ -163,6 +194,7 @@ export function NotesPage() {
         plan_end: null,
       })
       await reloadList()
+      setCalendarTick((n) => n + 1)
       setSearchParams({ id: String(row.id) })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('notes.saveFailed'))
@@ -177,6 +209,7 @@ export function NotesPage() {
       setNote(null)
       setSearchParams({})
       await reloadList()
+      setCalendarTick((n) => n + 1)
       toast.ok(t('notes.deleted'))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('notes.saveFailed'))
@@ -240,6 +273,18 @@ export function NotesPage() {
     scheduleSave()
   }
 
+  const applyColor = (next: NoteColor | null) => {
+    setColor(next)
+    colorRef.current = next
+    scheduleSave()
+  }
+
+  const applyMark = (next: NoteMark | null) => {
+    setMark(next)
+    markRef.current = next
+    scheduleSave()
+  }
+
   const toggleSameDayEnd = (checked: boolean) => {
     setSameDayEnd(checked)
     if (checked) {
@@ -275,7 +320,7 @@ export function NotesPage() {
           ) : list.length === 0 ? (
             <p className="px-1 py-3 text-xs text-[var(--color-fg-subtle)]">{t('notes.empty')}</p>
           ) : (
-            <ul className="max-h-[min(70vh,36rem)] space-y-1 overflow-y-auto">
+            <ul className="max-h-[min(40vh,22rem)] space-y-1 overflow-y-auto">
               {list.map((item) => {
                 const active = item.id === selectedId
                 const plan = formatPlan(item)
@@ -290,15 +335,23 @@ export function NotesPage() {
                           : 'hover:bg-[var(--color-surface-muted)] text-[var(--color-fg)]'
                       }`}
                     >
-                      <span className="block truncate text-[13px] font-medium">{item.title || t('notes.untitled')}</span>
-                      <span className="mt-0.5 block truncate text-[11px] text-[var(--color-fg-subtle)]">
-                        {[
-                          item.is_shared_with_me ? t('notes.sharedBadge') : null,
-                          plan,
-                          item.owner_username,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
+                      <span className="block truncate text-[13px] font-medium">
+                        {item.mark ? `${MARK_GLYPH[item.mark]} ` : ''}
+                        {item.title || t('notes.untitled')}
+                      </span>
+                      <span className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-[var(--color-fg-subtle)]">
+                        {item.color ? (
+                          <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${COLOR_SWATCH[item.color]}`} />
+                        ) : null}
+                        <span className="truncate">
+                          {[
+                            item.is_shared_with_me ? t('notes.sharedBadge') : null,
+                            plan,
+                            item.owner_username,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
                       </span>
                     </button>
                   </li>
@@ -306,6 +359,16 @@ export function NotesPage() {
               })}
             </ul>
           )}
+          <div className="mt-3">
+            <DashboardCalendar
+              compact
+              plansOnly
+              hideNotesLink
+              selectedNoteId={selectedId}
+              refreshKey={calendarTick}
+              onSelectPlan={(id) => setSearchParams({ id: String(id) })}
+            />
+          </div>
         </aside>
 
         <section className="app-panel !p-0 overflow-hidden">
@@ -438,6 +501,76 @@ export function NotesPage() {
                     />
                     <span>{t('notes.sameDayEnd')}</span>
                   </label>
+
+                  <div className="mt-3">
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-fg-subtle)]">
+                      {t('notes.planColor')}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => applyColor(null)}
+                        className={`h-6 rounded-md border px-2 text-[10px] font-medium ${
+                          color == null
+                            ? 'border-[var(--color-fg)] text-[var(--color-fg)]'
+                            : 'border-[var(--color-border)] text-[var(--color-fg-muted)]'
+                        }`}
+                      >
+                        {t('notes.planColorNone')}
+                      </button>
+                      {NOTE_COLORS.map((token) => (
+                        <button
+                          key={token}
+                          type="button"
+                          disabled={!canEdit}
+                          title={t(`notes.colors.${token}`)}
+                          onClick={() => applyColor(token)}
+                          className={`h-6 w-6 rounded-full ${COLOR_SWATCH[token]} ${
+                            color === token ? 'ring-2 ring-[var(--color-fg)] ring-offset-1 ring-offset-[var(--color-surface)]' : ''
+                          }`}
+                          aria-label={t(`notes.colors.${token}`)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-fg-subtle)]">
+                      {t('notes.planMark')}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => applyMark(null)}
+                        className={`h-7 rounded-md border px-2 text-[10px] font-medium ${
+                          mark == null
+                            ? 'border-[var(--color-fg)] text-[var(--color-fg)]'
+                            : 'border-[var(--color-border)] text-[var(--color-fg-muted)]'
+                        }`}
+                      >
+                        {t('notes.planMarkNone')}
+                      </button>
+                      {NOTE_MARKS.map((token) => (
+                        <button
+                          key={token}
+                          type="button"
+                          disabled={!canEdit}
+                          title={t(`dashboard.calendar.marks.${token}`)}
+                          onClick={() => applyMark(token)}
+                          className={`flex h-7 w-7 items-center justify-center rounded-md border text-sm ${
+                            mark === token
+                              ? 'border-[var(--color-fg)] bg-[var(--color-surface)] text-[var(--color-fg)]'
+                              : 'border-[var(--color-border)] text-[var(--color-fg-muted)]'
+                          }`}
+                          aria-label={t(`dashboard.calendar.marks.${token}`)}
+                        >
+                          {MARK_GLYPH[token]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 {isOwner ? (

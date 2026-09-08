@@ -1,5 +1,6 @@
 # Writes «Заявка CORAX.url» on the desktop with /h#pc=<this hostname>.
-# Works on Windows 7+ (PowerShell 2). Called from corax_run.cmd.
+# Works on Windows 7+ (PowerShell 2). Kept as a fallback; the EXE creates the
+# shortcut after a successful inventory POST.
 $ErrorActionPreference = 'SilentlyContinue'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $cfgPath = Join-Path $here 'agent.json'

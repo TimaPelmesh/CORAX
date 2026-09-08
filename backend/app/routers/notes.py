@@ -80,6 +80,8 @@ async def _note_out(db: AsyncSession, note: Note, viewer: User) -> NoteOut:
         owner_full_name=owner.full_name if owner else None,
         plan_start=note.plan_start,
         plan_end=note.plan_end,
+        color=note.color,  # type: ignore[arg-type]
+        mark=note.mark,  # type: ignore[arg-type]
         created_at=note.created_at,
         updated_at=note.updated_at,
         can_edit=can_edit,
@@ -146,6 +148,8 @@ async def list_notes(
                 owner_username=owner.username if owner else None,
                 plan_start=n.plan_start,
                 plan_end=n.plan_end,
+                color=n.color,  # type: ignore[arg-type]
+                mark=n.mark,  # type: ignore[arg-type]
                 updated_at=n.updated_at,
                 can_edit=can_edit,
                 is_owner=is_owner,
@@ -169,6 +173,8 @@ async def create_note(
         owner_user_id=current.id,
         plan_start=body.plan_start,
         plan_end=body.plan_end,
+        color=body.color,
+        mark=body.mark,
     )
     db.add(note)
     await db.commit()
@@ -209,6 +215,10 @@ async def update_note(
         note.plan_start = patch["plan_start"]
     if "plan_end" in patch:
         note.plan_end = patch["plan_end"]
+    if "color" in patch:
+        note.color = patch["color"]
+    if "mark" in patch:
+        note.mark = patch["mark"]
     _validate_plan_dates(note.plan_start, note.plan_end)
     note.updated_at = datetime.now(timezone.utc)
     await db.commit()

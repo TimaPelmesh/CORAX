@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type DashboardCalendarItem } from '../../api'
+import { api, type DashboardCalendarItem, type NoteColor, type NoteMark } from '../../api'
 import { useLocale, useT } from '../../i18n/LocaleContext'
 
 const WEEKDAY_KEYS = [
@@ -12,6 +12,30 @@ const WEEKDAY_KEYS = [
   'dashboard.calendar.weekdays.sat',
   'dashboard.calendar.weekdays.sun',
 ] as const
+
+const PLAN_COLOR_CLASS: Record<NoteColor, string> = {
+  blue: 'bg-sky-100 text-sky-900 dark:bg-sky-400/20 dark:text-sky-100',
+  green: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-400/20 dark:text-emerald-100',
+  amber: 'bg-amber-100 text-amber-900 dark:bg-amber-400/20 dark:text-amber-100',
+  rose: 'bg-rose-100 text-rose-900 dark:bg-rose-400/20 dark:text-rose-100',
+  violet: 'bg-violet-100 text-violet-900 dark:bg-violet-400/20 dark:text-violet-100',
+  slate: 'bg-slate-200 text-slate-900 dark:bg-slate-400/20 dark:text-slate-100',
+}
+
+const DAY_TINT_CLASS: Record<NoteColor, string> = {
+  blue: 'bg-sky-50 dark:bg-sky-400/10',
+  green: 'bg-emerald-50 dark:bg-emerald-400/10',
+  amber: 'bg-amber-50 dark:bg-amber-400/10',
+  rose: 'bg-rose-50 dark:bg-rose-400/10',
+  violet: 'bg-violet-50 dark:bg-violet-400/10',
+  slate: 'bg-slate-100 dark:bg-slate-400/10',
+}
+
+const MARK_GLYPH: Record<NoteMark, string> = {
+  dot: '●',
+  flag: '⚑',
+  star: '★',
+}
 
 function dateKey(value: Date): string {
   const year = value.getFullYear()
@@ -42,7 +66,33 @@ function dateRange(item: DashboardCalendarItem): string[] {
   return out
 }
 
-export function DashboardCalendar({ compact = false }: { compact?: boolean }) {
+function planBadgeClass(item: DashboardCalendarItem): string {
+  if (item.kind === 'request') {
+    return 'bg-amber-100 text-amber-900 dark:bg-amber-400/20 dark:text-amber-100'
+  }
+  if (item.color && PLAN_COLOR_CLASS[item.color]) {
+    return PLAN_COLOR_CLASS[item.color]
+  }
+  return 'bg-[var(--color-primary-muted)] text-[var(--color-primary)]'
+}
+
+export function DashboardCalendar({
+  compact = false,
+  plansOnly = false,
+  hideNotesLink = false,
+  selectedNoteId = null,
+  refreshKey = 0,
+  onSelectPlan,
+}: {
+  compact?: boolean
+  /** Notes planner: hide ticket deadlines. */
+  plansOnly?: boolean
+  hideNotesLink?: boolean
+  selectedNoteId?: number | null
+  /** Bump after note save so the month grid reloads. */
+  refreshKey?: number
+  onSelectPlan?: (noteId: number) => void
+}) {
   const t = useT()
   const { locale } = useLocale()
   const [month, setMonth] = useState(() => monthStart(new Date()))
@@ -57,7 +107,7 @@ export function DashboardCalendar({ compact = false }: { compact?: boolean }) {
     void api
       .dashboardCalendar(dateKey(month))
       .then((next) => {
-        if (!cancelled) setItems(next)
+        if (!cancelled) setItems(plansOnly ? next.filter((item) => item.kind === 'plan') : next)
       })
       .catch(() => {
         if (!cancelled) {
@@ -71,7 +121,7 @@ export function DashboardCalendar({ compact = false }: { compact?: boolean }) {
     return () => {
       cancelled = true
     }
-  }, [month])
+  }, [month, plansOnly, refreshKey])
 
   const eventsByDay = useMemo(() => {
     const byDay = new Map<string, DashboardCalendarItem[]>()
@@ -112,14 +162,24 @@ export function DashboardCalendar({ compact = false }: { compact?: boolean }) {
       {!compact ? (
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
-            <div id="dashboard-calendar-title" className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">
+            <div
+              id="dashboard-calendar-title"
+              className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]"
+            >
               {t('dashboard.calendar.title')}
             </div>
-            <p className="mt-0.5 text-[11px] text-[var(--color-fg-subtle)]">{t('dashboard.calendar.hint')}</p>
+            <p className="mt-0.5 text-[11px] text-[var(--color-fg-subtle)]">
+              {plansOnly ? t('dashboard.calendar.notesHint') : t('dashboard.calendar.hint')}
+            </p>
           </div>
-          <Link to="/knowledge-base/notes" className="shrink-0 text-[11px] font-medium text-[var(--color-primary)] no-underline hover:underline">
-            {t('dashboard.calendar.openPlanner')}
-          </Link>
+          {!hideNotesLink ? (
+            <Link
+              to="/knowledge-base/notes"
+              className="shrink-0 text-[11px] font-medium text-[var(--color-primary)] no-underline hover:underline"
+            >
+              {t('dashboard.calendar.openPlanner')}
+            </Link>
+          ) : null}
         </div>
       ) : null}
 
@@ -151,7 +211,10 @@ export function DashboardCalendar({ compact = false }: { compact?: boolean }) {
 
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-border)]">
         {WEEKDAY_KEYS.map((key) => (
-          <div key={key} className={`bg-[var(--color-surface-muted)] px-1 text-center text-[10px] font-semibold text-[var(--color-fg-subtle)] ${compact ? 'py-1' : 'py-1.5'}`}>
+          <div
+            key={key}
+            className={`bg-[var(--color-surface-muted)] px-1 text-center text-[10px] font-semibold text-[var(--color-fg-subtle)] ${compact ? 'py-1' : 'py-1.5'}`}
+          >
             {t(key)}
           </div>
         ))}
@@ -160,29 +223,65 @@ export function DashboardCalendar({ compact = false }: { compact?: boolean }) {
           const inMonth = day.getMonth() === month.getMonth()
           const events = eventsByDay.get(key) ?? []
           const visible = events.slice(0, compact ? 1 : 3)
+          const tintColor = events.find((e) => e.kind === 'plan' && e.color)?.color
+          const mark = events.find((e) => e.kind === 'plan' && e.mark)?.mark
+          const dayTint = tintColor ? DAY_TINT_CLASS[tintColor] : 'bg-[var(--color-surface)]'
           return (
             <div
               key={key}
-              className={`${compact ? 'min-h-[2.65rem] p-0.5' : 'min-h-[5.75rem] p-1'} bg-[var(--color-surface)] ${inMonth ? '' : 'opacity-45'}`}
+              className={`${compact ? 'min-h-[2.65rem] p-0.5' : 'min-h-[5.75rem] p-1'} ${dayTint} ${inMonth ? '' : 'opacity-45'}`}
             >
-              <div className={`${compact ? 'mb-0 h-4 w-4 text-[9px]' : 'mb-1 h-5 w-5 text-[10px]'} flex items-center justify-center rounded-full font-semibold ${key === today ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-fg-muted)]'}`}>
-                {day.getDate()}
+              <div className="mb-0.5 flex items-center justify-between gap-0.5">
+                <div
+                  className={`${compact ? 'h-4 w-4 text-[9px]' : 'h-5 w-5 text-[10px]'} flex items-center justify-center rounded-full font-semibold ${
+                    key === today
+                      ? 'bg-[var(--color-primary)] text-white'
+                      : 'text-[var(--color-fg-muted)]'
+                  }`}
+                >
+                  {day.getDate()}
+                </div>
+                {mark ? (
+                  <span
+                    className={`${compact ? 'text-[8px]' : 'text-[10px]'} leading-none text-[var(--color-fg-muted)]`}
+                    title={t(`dashboard.calendar.marks.${mark}`)}
+                    aria-hidden
+                  >
+                    {MARK_GLYPH[mark]}
+                  </span>
+                ) : null}
               </div>
               <div className={compact ? 'space-y-0' : 'space-y-0.5'}>
-                {visible.map((item, index) => (
-                  <Link
-                    key={`${item.kind}-${item.id}-${index}`}
-                    to={item.kind === 'plan' ? `/knowledge-base/notes?id=${item.id}` : `/requests/database`}
-                    title={item.title}
-                    className={`block truncate rounded px-1 ${compact ? 'py-px text-[8px]' : 'py-0.5 text-[9px]'} font-medium no-underline ${
-                      item.kind === 'plan'
-                        ? 'bg-[var(--color-primary-muted)] text-[var(--color-primary)]'
-                        : 'bg-amber-100 text-amber-900 dark:bg-amber-400/20 dark:text-amber-100'
-                    }`}
-                  >
-                    {item.kind === 'plan' ? t('dashboard.calendar.planPrefix') : t('dashboard.calendar.requestPrefix')} {item.title}
-                  </Link>
-                ))}
+                {visible.map((item, index) => {
+                  const selected = item.kind === 'plan' && selectedNoteId === item.id
+                  const className = `block truncate rounded px-1 ${compact ? 'py-px text-[8px]' : 'py-0.5 text-[9px]'} font-medium no-underline ${planBadgeClass(item)} ${
+                    selected ? 'ring-1 ring-[var(--color-fg)]/40' : ''
+                  }`
+                  const label = `${item.kind === 'plan' ? t('dashboard.calendar.planPrefix') : t('dashboard.calendar.requestPrefix')} ${item.title}`
+                  if (item.kind === 'plan' && onSelectPlan) {
+                    return (
+                      <button
+                        key={`${item.kind}-${item.id}-${index}`}
+                        type="button"
+                        title={item.title}
+                        className={`${className} w-full text-left`}
+                        onClick={() => onSelectPlan(item.id)}
+                      >
+                        {label}
+                      </button>
+                    )
+                  }
+                  return (
+                    <Link
+                      key={`${item.kind}-${item.id}-${index}`}
+                      to={item.kind === 'plan' ? `/knowledge-base/notes?id=${item.id}` : `/requests/database`}
+                      title={item.title}
+                      className={className}
+                    >
+                      {label}
+                    </Link>
+                  )
+                })}
                 {events.length > visible.length ? (
                   <div className="px-1 text-[9px] font-medium text-[var(--color-fg-subtle)]">
                     {t('dashboard.calendar.more', { count: events.length - visible.length })}
@@ -194,16 +293,23 @@ export function DashboardCalendar({ compact = false }: { compact?: boolean }) {
         })}
       </div>
 
-      {compact ? (
+      {compact && !hideNotesLink ? (
         <div className="mt-1.5 text-right">
-          <Link to="/knowledge-base/notes" className="text-[10px] font-medium text-[var(--color-primary)] no-underline hover:underline">
+          <Link
+            to="/knowledge-base/notes"
+            className="text-[10px] font-medium text-[var(--color-primary)] no-underline hover:underline"
+          >
             {t('dashboard.calendar.openNotes')}
           </Link>
         </div>
       ) : null}
       {!compact && loading ? <p className="mt-2 text-xs text-[var(--color-fg-subtle)]">{t('common.loading')}</p> : null}
-      {!compact && failed ? <p className="mt-2 text-xs text-[var(--color-error-fg)]">{t('dashboard.calendar.error')}</p> : null}
-      {!compact && !loading && !failed && items.length === 0 ? <p className="mt-2 text-xs text-[var(--color-fg-subtle)]">{t('dashboard.calendar.empty')}</p> : null}
+      {!compact && failed ? (
+        <p className="mt-2 text-xs text-[var(--color-error-fg)]">{t('dashboard.calendar.error')}</p>
+      ) : null}
+      {!compact && !loading && !failed && items.length === 0 ? (
+        <p className="mt-2 text-xs text-[var(--color-fg-subtle)]">{t('dashboard.calendar.empty')}</p>
+      ) : null}
     </section>
   )
 }

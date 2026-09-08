@@ -33,8 +33,8 @@ export const STATUS_PILL: Record<string, string> = {
 
 export const RECENT_TITLE_KEY = 'service_request_recent_titles_v1'
 export const RECENT_TITLES_MAX = 8
-export const DB_PAGE_SIZE_KEY = 'service_request_database_page_size_v1'
-export const DB_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const
+export const DB_PAGE_SIZE_KEY = 'service_request_database_page_size_v2'
+export const DB_PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
 
 export type RequestsTabId = 'create' | 'database' | 'stats' | 'templates'
 
@@ -51,9 +51,11 @@ export function isRequestPriority(value: string): value is RequestPriority {
 export function readDatabasePageSize(): (typeof DB_PAGE_SIZE_OPTIONS)[number] {
   try {
     const value = Number(localStorage.getItem(DB_PAGE_SIZE_KEY))
-    return DB_PAGE_SIZE_OPTIONS.includes(value as (typeof DB_PAGE_SIZE_OPTIONS)[number]) ? value as (typeof DB_PAGE_SIZE_OPTIONS)[number] : 100
+    return DB_PAGE_SIZE_OPTIONS.includes(value as (typeof DB_PAGE_SIZE_OPTIONS)[number])
+      ? (value as (typeof DB_PAGE_SIZE_OPTIONS)[number])
+      : 25
   } catch {
-    return 100
+    return 25
   }
 }
 

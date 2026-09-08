@@ -77,7 +77,16 @@ std::vector<WmiRowMap> query_impl(bool ready, const std::wstring& ns, const std:
 
   IWbemClassObject* obj = nullptr;
   ULONG returned = 0;
-  while (enumerator->Next(WBEM_INFINITE, 1, &obj, &returned) == S_OK) {
+  // Never wait forever: a stuck WMI provider used to freeze/kill the agent
+  // after the splash with a desktop shortcut already written.
+  constexpr ULONG kNextTimeoutMs = 8000;
+  constexpr ULONGLONG kQueryBudgetMs = 20000;
+  constexpr size_t kMaxRows = 3000;
+  const ULONGLONG t0 = GetTickCount64();
+  while (out.size() < kMaxRows) {
+    if (GetTickCount64() - t0 > kQueryBudgetMs) break;
+    HRESULT nhr = enumerator->Next(kNextTimeoutMs, 1, &obj, &returned);
+    if (nhr != S_OK || !returned || !obj) break;
     WmiRowMap row;
     SAFEARRAY* names = nullptr;
     if (SUCCEEDED(obj->GetNames(nullptr, WBEM_FLAG_ALWAYS | WBEM_FLAG_NONSYSTEM_ONLY, nullptr,

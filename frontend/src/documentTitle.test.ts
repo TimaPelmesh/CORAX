@@ -13,16 +13,16 @@ describe('titleForPath', () => {
     expect(titleForPath('/settings/https', 'en')).toMatch(/HTTPS/i)
   })
 
-  it('resolves ticket handler route', () => {
-    expect(titleForPath('/requests/handler', 'ru')).toMatch(/Обработчик/)
-    expect(titleForPath('/requests/handler', 'en')).toMatch(/handler/i)
-  })
-
   it('resolves warehouse, settings hub, and guide', () => {
     expect(titleForPath('/warehouse', 'ru')).toMatch(/Склад/)
     expect(titleForPath('/knowledge-base/warehouse', 'ru')).toMatch(/Склад/)
     expect(titleForPath('/settings', 'ru')).toMatch(/Настройк/)
     expect(titleForPath('/knowledge-base/guide', 'en')).toMatch(/Guide/i)
+  })
+
+  it('resolves zabbix data knowledge route', () => {
+    expect(titleForPath('/knowledge-base/zabbix', 'ru')).toMatch(/Zabbix/)
+    expect(titleForPath('/knowledge-base/zabbix', 'en')).toMatch(/Zabbix/i)
   })
 
   it('strips trailing slash and falls back', () => {

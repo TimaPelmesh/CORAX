@@ -22,14 +22,14 @@ function Write-ScanLine([string]$Label, [string]$Value, [string]$Status = 'OK') 
     Write-Host ($Label + $dots + $Value) -ForegroundColor DarkGray
 }
 
-$cursorWasVisible = [Console]::CursorVisible
-[Console]::CursorVisible = $false
-$Host.UI.RawUI.WindowTitle = 'CORAX AGENT'
+$cursorWasVisible = $true
+try { $cursorWasVisible = [Console]::CursorVisible } catch { }
+try { [Console]::CursorVisible = $false } catch { }
+try { $Host.UI.RawUI.WindowTitle = 'CORAX AGENT' } catch { }
 
 try {
-    try { Clear-Host } catch { }
-
-    $w = [Math]::Min(72, [Math]::Max(60, [Console]::WindowWidth))
+    $w = 72
+    try { $w = [Math]::Min(72, [Math]::Max(60, [Console]::WindowWidth)) } catch { }
     $barW = [Math]::Min(40, $w - 24)
 
     $art = @(
@@ -123,5 +123,5 @@ try {
     Start-Sleep -Milliseconds 280
 }
 finally {
-    [Console]::CursorVisible = $cursorWasVisible
+    try { [Console]::CursorVisible = $cursorWasVisible } catch { }
 }

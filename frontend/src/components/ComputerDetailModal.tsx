@@ -16,6 +16,7 @@ import { useT } from '../i18n/LocaleContext'
 import { groupPeripheralsForDisplay } from '../peripheralDisplay'
 import { useToast } from '../ToastContext'
 import { IconClose } from './icons'
+import { ComputerZabbixStatus } from './ComputerZabbixStatus'
 
 export function fmtDate(iso: string | null, locale: 'ru' | 'en') {
   if (!iso) return '—'
@@ -453,6 +454,7 @@ export function ComputerDetailModal({
                   {detail.manufacturer} {detail.model} · {detail.serial_number ?? t('computerDetail.noSerial')}
                   {detail.location ? ` · ${detail.location}` : ''}
                 </p>
+                <ComputerZabbixStatus hostname={detail.hostname} />
               </div>
               <button
                 type="button"

@@ -606,7 +606,6 @@ $paths = @('/api/v1/agent/inventory', '/api/agent/inventory')
 Log "[1/5] Collect: machine + OS + CPU + MAC ..."
 $hostname = FirstNonEmpty @($env:COMPUTERNAME, (Get-WmiText 'Win32_ComputerSystem' 'Name'))
 if (-not $hostname -or $hostname.Trim().Length -eq 0) { $hostname = 'unknown-host' }
-try { Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $hostname } catch { }
 $osName = Safe-Call "WMI OS Caption" { Get-WmiText 'Win32_OperatingSystem' 'Caption' }
 $osVer = Safe-Call "WMI OS Version" { Get-WmiText 'Win32_OperatingSystem' 'Version' }
 $osBuild = Safe-Call "WMI OS BuildNumber" { Get-WmiText 'Win32_OperatingSystem' 'BuildNumber' }
@@ -738,6 +737,7 @@ foreach ($p in $ports) {
             $resp = Post-Json -Uri $uri -Token $token -Json $json
             Log ("HTTP: OK " + $resp)
             Log ("HTTP: working endpoint = " + $uri)
+            try { Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $hostname } catch { }
             Log "=== Inventory client (Win7): done ==="
             exit 0
         } catch {

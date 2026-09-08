@@ -379,12 +379,18 @@ class DashboardUpcomingNote(BaseModel):
     owner_username: str | None = None
 
 
+NoteColor = Literal["blue", "green", "amber", "rose", "violet", "slate"]
+NoteMark = Literal["dot", "flag", "star"]
+
+
 class DashboardCalendarItem(BaseModel):
     id: int
     kind: Literal["plan", "request"]
     title: str
     start_date: date
     end_date: date | None = None
+    color: NoteColor | None = None
+    mark: NoteMark | None = None
 
 
 class DashboardDiskDeviceRank(BaseModel):
@@ -701,6 +707,39 @@ class Bitrix24ConfigUpdate(BaseModel):
     default_category: str | None = None
 
 
+class ZabbixConfigOut(BaseModel):
+    enabled: bool
+    base_url: str
+    api_token_set: bool
+    verify_tls: bool
+    last_test_at: datetime | None = None
+    last_test_ok: bool | None = None
+    last_test_message: str = ""
+    last_version: str = ""
+    last_hosts_total: int | None = None
+    last_problems_total: int | None = None
+
+
+class ZabbixConfigUpdate(BaseModel):
+    enabled: bool | None = None
+    base_url: str | None = Field(default=None, max_length=512)
+    api_token: str | None = Field(default=None, max_length=512)
+    verify_tls: bool | None = None
+
+
+class ZabbixTestResponse(BaseModel):
+    ok: bool
+    message: str
+    version: str | None = None
+    hosts_total: int | None = None
+    problems_total: int | None = None
+    api_url: str | None = None
+    auth_mode: str | None = None
+    scheme: str | None = None
+    sample_hosts: list[str] = []
+    sample_problems: list[str] = []
+
+
 class Bitrix24IncomingRequest(BaseModel):
     """Нормализованный payload для вебхука (можно слать из Битрикс-бота)."""
 
@@ -950,6 +989,8 @@ class NoteCreate(BaseModel):
     body_html: str = Field(default="", max_length=500_000)
     plan_start: date | None = None
     plan_end: date | None = None
+    color: NoteColor | None = None
+    mark: NoteMark | None = None
 
 
 class NoteUpdate(BaseModel):
@@ -957,6 +998,8 @@ class NoteUpdate(BaseModel):
     body_html: str | None = Field(default=None, max_length=500_000)
     plan_start: date | None = None
     plan_end: date | None = None
+    color: NoteColor | None = None
+    mark: NoteMark | None = None
 
 
 class NoteSharesReplace(BaseModel):
@@ -972,6 +1015,8 @@ class NoteOut(BaseModel):
     owner_full_name: str | None = None
     plan_start: date | None = None
     plan_end: date | None = None
+    color: NoteColor | None = None
+    mark: NoteMark | None = None
     created_at: datetime
     updated_at: datetime
     can_edit: bool = False
@@ -988,6 +1033,8 @@ class NoteListItem(BaseModel):
     owner_username: str | None = None
     plan_start: date | None = None
     plan_end: date | None = None
+    color: NoteColor | None = None
+    mark: NoteMark | None = None
     updated_at: datetime
     can_edit: bool = False
     is_owner: bool = False

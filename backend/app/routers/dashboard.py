@@ -6,10 +6,10 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, func, literal, select
+from sqlalchemy import case, cast, Date, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.oem_normalize import (
     aggregate_manufacturer_counts,
     aggregate_motherboard_counts,
@@ -73,7 +73,7 @@ def _count_tab_printers(rows: list[tuple]) -> int:
 
 logger = logging.getLogger(__name__)
 
-_SUMMARY_CACHE_SECONDS = 30.0
+_SUMMARY_CACHE_SECONDS = 45.0
 _SUMMARY_CACHE: tuple[float, tuple, DashboardSummary] | None = None
 # Thundering-herd guard: если 10 клиентов пришли одновременно на холодный
 # кэш, считать дашборд должен один — остальные подождут единицы миллисекунд
@@ -165,8 +165,18 @@ def build_closed_tickets_series(closed_at_values: list[datetime]) -> tuple[str, 
     """Bucket closed tickets into day/week/month series spanning the full history."""
     if not closed_at_values:
         return "day", []
+    return build_closed_tickets_series_from_day_counts(
+        Counter(_as_utc_date(v) for v in closed_at_values)
+    )
 
-    days = sorted(_as_utc_date(v) for v in closed_at_values)
+
+def build_closed_tickets_series_from_day_counts(
+    day_counts: Counter[date],
+) -> tuple[str, list[DashboardTimePoint]]:
+    if not day_counts:
+        return "day", []
+
+    days = sorted(day_counts.keys())
     first, last = days[0], days[-1]
     span = (last - first).days
 
@@ -195,7 +205,10 @@ def build_closed_tickets_series(closed_at_values: list[datetime]) -> tuple[str, 
         def advance(d: date) -> date:
             return _next_month(d)
 
-    counts = Counter(bucket(d) for d in days)
+    counts: Counter[date] = Counter()
+    for day, n in day_counts.items():
+        counts[bucket(day)] += int(n)
+
     cur = bucket(first)
     end = bucket(last)
     points: list[DashboardTimePoint] = []
@@ -207,6 +220,12 @@ def build_closed_tickets_series(closed_at_values: list[datetime]) -> tuple[str, 
         cur = advance(cur)
 
     return granularity, points
+
+
+async def _with_fresh_session(fn):
+    """Run a coroutine with its own AsyncSession — safe for asyncio.gather."""
+    async with AsyncSessionLocal() as session:
+        return await fn(session)
 
 
 """ОЗУ: группа по округлённому объёму (8 / 16 / 32 ГБ и т.д. видны отдельно)."""
@@ -240,18 +259,15 @@ def _normalize_monitor_name(name: str) -> str:
 
 
 async def _dashboard_stamp(db: AsyncSession) -> tuple:
-    computer_n, last_report, last_ping = (
+    computer_n, last_report, last_ping, ticket_n, ticket_updated = (
         await db.execute(
             select(
-                func.count(),
-                func.max(Computer.last_report_at),
-                func.max(Computer.last_ping_at),
+                select(func.count()).select_from(Computer).scalar_subquery(),
+                select(func.max(Computer.last_report_at)).scalar_subquery(),
+                select(func.max(Computer.last_ping_at)).scalar_subquery(),
+                select(func.count()).select_from(ServiceRequest).scalar_subquery(),
+                select(func.max(ServiceRequest.updated_at)).scalar_subquery(),
             )
-        )
-    ).one()
-    ticket_n, ticket_updated = (
-        await db.execute(
-            select(func.count(), func.max(ServiceRequest.updated_at)).select_from(ServiceRequest)
         )
     ).one()
     return (
@@ -286,35 +302,30 @@ async def dashboard_calendar(
     )
     if notes_access is not True:
         plans_query = plans_query.where(notes_access)
-    plans = list(
-        (
-            await db.execute(
-                plans_query.order_by(Note.plan_start.asc().nulls_last(), Note.id.asc()).limit(500)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    plans_stmt = plans_query.order_by(Note.plan_start.asc().nulls_last(), Note.id.asc()).limit(500)
 
     window_start = datetime.combine(month_start, datetime.min.time(), tzinfo=timezone.utc)
     window_end = datetime.combine(next_month, datetime.min.time(), tzinfo=timezone.utc)
-    requests = list(
-        (
-            await db.execute(
-                select(ServiceRequest)
-                .where(
-                    ServiceRequest.status == "open",
-                    ServiceRequest.planned_close_at.is_not(None),
-                    ServiceRequest.planned_close_at >= window_start,
-                    ServiceRequest.planned_close_at < window_end,
-                )
-                .order_by(ServiceRequest.planned_close_at.asc(), ServiceRequest.id.asc())
-                .limit(500)
-            )
+    requests_stmt = (
+        select(ServiceRequest)
+        .where(
+            ServiceRequest.status == "open",
+            ServiceRequest.planned_close_at.is_not(None),
+            ServiceRequest.planned_close_at >= window_start,
+            ServiceRequest.planned_close_at < window_end,
         )
-        .scalars()
-        .all()
+        .order_by(ServiceRequest.planned_close_at.asc(), ServiceRequest.id.asc())
+        .limit(500)
     )
+
+    async def _plans(s: AsyncSession):
+        return list((await s.execute(plans_stmt)).scalars().all())
+
+    async def _requests(s: AsyncSession):
+        return list((await s.execute(requests_stmt)).scalars().all())
+
+    plans, requests = await asyncio.gather(_with_fresh_session(_plans), _with_fresh_session(_requests))
+    del db  # request session unused after parallel reads
 
     items = [
         DashboardCalendarItem(
@@ -323,6 +334,8 @@ async def dashboard_calendar(
             title=note.title or "—",
             start_date=max(note.plan_start or note.plan_end, month_start),
             end_date=min(note.plan_end or note.plan_start, next_month - timedelta(days=1)),
+            color=note.color,  # type: ignore[arg-type]
+            mark=note.mark,  # type: ignore[arg-type]
         )
         for note in plans
     ]
@@ -350,32 +363,56 @@ async def dashboard_nav_badges(
     if cached is not None:
         return cached
 
-    computers_total = int(await db.scalar(select(func.count()).select_from(Computer)) or 0)
-    software_unique_titles = int(
-        await db.scalar(
-            select(func.count(func.distinct(InstalledSoftware.name)))
-            .select_from(InstalledSoftware)
-            .join(Computer, Computer.id == InstalledSoftware.computer_id)
-        )
-        or 0
-    )
-    pr_rows = (
-        await db.execute(
-            select(Printer.name, Printer.snmp_model, Printer.snmp_sys_name).where(
-                Printer.source.in_(("snmp", "manual"))
+    async def _computers(s: AsyncSession) -> int:
+        return int(await s.scalar(select(func.count()).select_from(Computer)) or 0)
+
+    async def _software(s: AsyncSession) -> int:
+        return int(
+            await s.scalar(
+                select(func.count(func.distinct(InstalledSoftware.name)))
+                .select_from(InstalledSoftware)
+                .join(Computer, Computer.id == InstalledSoftware.computer_id)
             )
+            or 0
         )
-    ).all()
-    snmp_printers_total = _count_tab_printers(pr_rows)
-    service_requests_active = int(
-        await db.scalar(
-            select(func.count())
-            .select_from(ServiceRequest)
-            .where(ServiceRequest.status.in_(["open", "in_progress"]))
+
+    async def _printers(s: AsyncSession) -> int:
+        rows = (
+            await s.execute(
+                select(Printer.name, Printer.snmp_model, Printer.snmp_sys_name).where(
+                    Printer.source.in_(("snmp", "manual"))
+                )
+            )
+        ).all()
+        return _count_tab_printers(rows)
+
+    async def _active_requests(s: AsyncSession) -> int:
+        return int(
+            await s.scalar(
+                select(func.count())
+                .select_from(ServiceRequest)
+                .where(ServiceRequest.status.in_(["open", "in_progress"]))
+            )
+            or 0
         )
-        or 0
+
+    async def _notes(s: AsyncSession) -> int:
+        return await accessible_notes_count(s, current)
+
+    (
+        computers_total,
+        software_unique_titles,
+        snmp_printers_total,
+        service_requests_active,
+        notes_total,
+    ) = await asyncio.gather(
+        _with_fresh_session(_computers),
+        _with_fresh_session(_software),
+        _with_fresh_session(_printers),
+        _with_fresh_session(_active_requests),
+        _with_fresh_session(_notes),
     )
-    notes_total = await accessible_notes_count(db, current)
+    del db
     result = DashboardNavBadges(
         computers_total=computers_total,
         software_unique_titles=software_unique_titles,
@@ -409,7 +446,16 @@ async def dashboard_summary(
                 inventory = await _compute_dashboard_inventory(db)
                 _SUMMARY_CACHE = (now_mono + _SUMMARY_CACHE_SECONDS, stamp, inventory)
 
-    upcoming_raw = await accessible_upcoming_notes(db, current, horizon_days=30, limit=8)
+    async def _upcoming(s: AsyncSession):
+        return await accessible_upcoming_notes(s, current, horizon_days=30, limit=8)
+
+    async def _notes_count(s: AsyncSession):
+        return await accessible_notes_count(s, current)
+
+    upcoming_raw, notes_total = await asyncio.gather(
+        _with_fresh_session(_upcoming),
+        _with_fresh_session(_notes_count),
+    )
     upcoming_notes = [
         DashboardUpcomingNote(
             id=n.id,
@@ -420,301 +466,414 @@ async def dashboard_summary(
         )
         for n, owner in upcoming_raw
     ]
-    notes_total = await accessible_notes_count(db, current)
     return inventory.model_copy(update={"upcoming_notes": upcoming_notes, "notes_total": notes_total})
 
 
 async def _compute_dashboard_inventory(db: AsyncSession) -> DashboardSummary:
+    """Inventory analytics. Independent SELECTs run in parallel on fresh sessions."""
+    del db  # request session is not concurrency-safe; each worker opens its own
     ping_status_l = func.lower(func.coalesce(Computer.ping_status, ""))
-    ping_row = (
-        await db.execute(
-            select(
-                func.count().label("total"),
-                func.coalesce(func.sum(case((ping_status_l == "online", 1), else_=0)), 0).label("online"),
-                func.coalesce(func.sum(case((ping_status_l == "offline", 1), else_=0)), 0).label("offline"),
-            )
-        )
-    ).one()
-    computers_total = int(ping_row.total or 0)
-    computers_online = int(ping_row.online or 0)
-    computers_offline = int(ping_row.offline or 0)
-    computers_unknown = max(0, computers_total - computers_online - computers_offline)
-    sw_row = (
-        await db.execute(
-            select(
-                func.count().label("installs"),
-                func.count(func.distinct(InstalledSoftware.name)).label("titles"),
-            )
-            .select_from(InstalledSoftware)
-            .join(Computer, Computer.id == InstalledSoftware.computer_id)
-        )
-    ).one()
-    software_installations_total = int(sw_row.installs or 0)
-    software_unique_titles = int(sw_row.titles or 0)
-    tags_in_directory = int(await db.scalar(select(func.count()).select_from(Tag)) or 0)
-    pr_inv = (
-        await db.execute(
-            select(Printer.name, Printer.snmp_model, Printer.snmp_sys_name).where(
-                Printer.source.in_(("snmp", "manual"))
-            )
-        )
-    ).all()
-    snmp_printers_total = _count_tab_printers(pr_inv)
-    status_r = await db.execute(
-        select(ServiceRequest.status, func.count()).group_by(ServiceRequest.status).order_by(func.count().desc())
-    )
-    service_requests_by_status = [
-        DashboardNameCount(name=str(row[0]), count=int(row[1])) for row in status_r.all()
-    ]
-    status_map = {item.name: item.count for item in service_requests_by_status}
-    service_requests_total = sum(status_map.values())
-    service_requests_active = int(status_map.get("open", 0) + status_map.get("in_progress", 0))
-    now = datetime.now(timezone.utc)
-    service_requests_overdue = int(
-        await db.scalar(
-            select(func.count())
-            .select_from(ServiceRequest)
-            .where(ServiceRequest.planned_close_at.is_not(None))
-            .where(ServiceRequest.planned_close_at < now)
-            .where(ServiceRequest.closed_at.is_(None))
-            .where(ServiceRequest.status.notin_(["done", "cancelled"]))
-        )
-        or 0
-    )
-    plan_row = (
-        await db.execute(
-            select(
-                func.count().label("with_plan"),
-                func.coalesce(
-                    func.sum(case((ServiceRequest.closed_at <= ServiceRequest.planned_close_at, 1), else_=0)),
-                    0,
-                ).label("on_time"),
-            )
-            .where(ServiceRequest.closed_at.is_not(None))
-            .where(ServiceRequest.planned_close_at.is_not(None))
-        )
-    ).one()
-    closed_with_plan = int(plan_row.with_plan or 0)
-    if closed_with_plan > 0:
-        service_requests_on_time_pct = int(round((int(plan_row.on_time or 0) / closed_with_plan) * 100))
-    else:
-        service_requests_on_time_pct = None
-    # Average close time: arithmetic mean of (closed_at - coalesce(opened_at, created_at))
-    # only for status=done with a positive duration (bad/backdated timestamps excluded).
-    _opened = func.coalesce(ServiceRequest.opened_at, ServiceRequest.created_at)
-    avg_close_seconds = await db.scalar(
-        select(func.avg(func.extract("epoch", ServiceRequest.closed_at - _opened)))
-        .where(ServiceRequest.status == "done")
-        .where(ServiceRequest.closed_at.is_not(None))
-        .where(_opened.is_not(None))
-        .where(ServiceRequest.closed_at > _opened)
-    )
-    service_requests_avg_close_hours = (
-        round(float(avg_close_seconds) / 3600.0, 1) if avg_close_seconds is not None else None
-    )
-
-    async def _name_counts(q) -> list[DashboardNameCount]:
-        r = await db.execute(q)
-        return [DashboardNameCount(name=str(row[0]), count=int(row[1])) for row in r.all()]
-
-    _os_r = await db.execute(
-        select(Computer.os_name, func.count()).group_by(Computer.os_name)
-    )
-    by_os = [
-        DashboardNameCount(name=n, count=c)
-        for n, c in aggregate_os_counts([(row[0], int(row[1])) for row in _os_r.all()])
-    ]
-
-    mfr_r = await db.execute(select(Computer.manufacturer, func.count()).group_by(Computer.manufacturer))
-    by_manufacturer = [
-        DashboardNameCount(name=n, count=c)
-        for n, c in aggregate_manufacturer_counts([(row[0], int(row[1])) for row in mfr_r.all()], limit=12)
-    ]
-
-    model_r = await db.execute(select(Computer.model, func.count()).group_by(Computer.model))
-    by_system_model = [
-        DashboardNameCount(name=n, count=c)
-        for n, c in aggregate_system_model_counts([(row[0], int(row[1])) for row in model_r.all()], limit=12)
-    ]
-
-    r = await db.execute(
-        select(_ram_gb_rounded.label("gb_bucket"), func.count()).group_by(_ram_gb_rounded)
-    )
-    ram_buckets_raw: list[DashboardRamBucket] = []
-    for row in r.all():
-        gb_val, cnt = row[0], int(row[1])
-        if gb_val is None:
-            label = "неизвестно"
-        else:
-            label = f"{int(round(float(gb_val)))} ГБ"
-        ram_buckets_raw.append(DashboardRamBucket(label=label, count=cnt))
-    ram_buckets = sorted(ram_buckets_raw, key=lambda b: _ram_bucket_sort_key(b.label))
-
-    top_cpu = await _name_counts(
-        select(Computer.cpu, func.count())
-        .where(Computer.cpu.is_not(None))
-        .where(Computer.cpu != "")
-        .group_by(Computer.cpu)
-        .order_by(func.count().desc())
-        .limit(8)
-    )
-    top_cpu = [DashboardNameCount(name=c.name[:120] if len(c.name) > 120 else c.name, count=c.count) for c in top_cpu]
-
-    pc_sw = func.count(func.distinct(InstalledSoftware.computer_id))
-    sw_r = await db.execute(
-        select(InstalledSoftware.name, pc_sw.label("cnt"))
-        .join(Computer, Computer.id == InstalledSoftware.computer_id)
-        .group_by(InstalledSoftware.name)
-        .order_by(pc_sw.desc())
-        .limit(10)
-    )
-    top_software = [DashboardNameCount(name=str(row[0]), count=int(row[1])) for row in sw_r.all()]
-
-    fam_r = await db.execute(
-        select(InstalledSoftware.name, InstalledSoftware.computer_id).join(
-            Computer, Computer.id == InstalledSoftware.computer_id
-        )
-    )
-    browsers_ids: dict[str, set[int]] = {}
-    office_ids: dict[str, set[int]] = {}
-    for sw_name, cid in fam_r.all():
-        fam = classify_software_name(str(sw_name))
-        if fam is None:
-            continue
-        cid_i = int(cid)
-        bucket = browsers_ids if fam.category == "browser" else office_ids
-        bucket.setdefault(fam.name, set()).add(cid_i)
-    browsers = [
-        DashboardNameCount(name=n, count=len(ids))
-        for n, ids in sorted(browsers_ids.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-    ]
-    office_suites = [
-        DashboardNameCount(name=n, count=len(ids))
-        for n, ids in sorted(office_ids.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-    ]
-
     pe_pc = func.count(func.distinct(Peripheral.computer_id))
-    pk_r = await db.execute(
-        select(Peripheral.kind, pe_pc.label("cnt"))
-        .join(Computer, Computer.id == Peripheral.computer_id)
-        .group_by(Peripheral.kind)
-    )
-    pk_rows = [
-        DashboardPeripheralKind(
-            kind=str(row[0]),
-            label=_PERIPHERAL_KIND_LABELS.get(str(row[0]), str(row[0])),
-            pc_count=int(row[1]),
-        )
-        for row in pk_r.all()
-    ]
-    peripheral_kinds = sorted(
-        pk_rows,
-        key=lambda x: (
-            _PERIPHERAL_KIND_ORDER.index(x.kind) if x.kind in _PERIPHERAL_KIND_ORDER else 50,
-            -x.pc_count,
-        ),
-    )
+    pc_sw = func.count(func.distinct(InstalledSoftware.computer_id))
 
-    tp_r = await db.execute(
-        select(Peripheral.name, pe_pc.label("cnt"))
-        .join(Computer, Computer.id == Peripheral.computer_id)
-        .group_by(Peripheral.name)
-        .order_by(pe_pc.desc())
-        .limit(12)
-    )
-    top_peripherals = [
-        DashboardNameCount(
-            name=(n[:140] + "…") if len(n := str(row[0])) > 140 else n,
-            count=int(row[1]),
-        )
-        for row in tp_r.all()
-    ]
+    async def _fleet() -> tuple[int, int, int, int]:
+        async with AsyncSessionLocal() as s:
+            row = (
+                await s.execute(
+                    select(
+                        func.count().label("total"),
+                        func.coalesce(func.sum(case((ping_status_l == "online", 1), else_=0)), 0).label(
+                            "online"
+                        ),
+                        func.coalesce(func.sum(case((ping_status_l == "offline", 1), else_=0)), 0).label(
+                            "offline"
+                        ),
+                    )
+                )
+            ).one()
+            total = int(row.total or 0)
+            online = int(row.online or 0)
+            offline = int(row.offline or 0)
+            return total, online, offline, max(0, total - online - offline)
 
-    closed_at_r = await db.execute(
-        select(ServiceRequest.closed_at).where(ServiceRequest.closed_at.is_not(None))
-    )
-    closed_granularity, closed_series = build_closed_tickets_series(
-        [row[0] for row in closed_at_r.all() if row[0] is not None]
-    )
+    async def _software_totals() -> tuple[int, int]:
+        async with AsyncSessionLocal() as s:
+            row = (
+                await s.execute(
+                    select(
+                        func.count().label("installs"),
+                        func.count(func.distinct(InstalledSoftware.name)).label("titles"),
+                    )
+                    .select_from(InstalledSoftware)
+                    .join(Computer, Computer.id == InstalledSoftware.computer_id)
+                )
+            ).one()
+            return int(row.installs or 0), int(row.titles or 0)
 
-    # Monitors: merge agent PnP (peripherals.kind=monitor) and GLPI-imported monitors table.
-    mon_r = await db.execute(
-        select(Peripheral.name, Peripheral.computer_id)
-        .join(Computer, Computer.id == Peripheral.computer_id)
-        .where(Peripheral.kind == "monitor")
-        .where(Peripheral.name.is_not(None))
-        .where(Peripheral.name != "")
-    )
-    monitors_by_name: dict[str, dict[str, object]] = {}
-    for row in mon_r.all():
-        raw_name = str(row[0]).strip()
-        pc_id = int(row[1])
-        if not _is_real_monitor_name(raw_name):
-            continue
-        normalized = _normalize_monitor_name(raw_name)
-        cur = monitors_by_name.setdefault(normalized, {"pcs": set(), "units": 0})
-        (cur["pcs"]).add(pc_id)  # type: ignore[union-attr]
+    async def _tags() -> int:
+        async with AsyncSessionLocal() as s:
+            return int(await s.scalar(select(func.count()).select_from(Tag)) or 0)
 
-    glpi_r = await db.execute(
-        select(Monitor.name)
-        .where(Monitor.name.is_not(None))
-        .where(Monitor.name != "")
-    )
-    for row in glpi_r.all():
-        raw_name = str(row[0]).strip()
-        if not raw_name:
-            continue
-        normalized = _normalize_monitor_name(raw_name)
-        cur = monitors_by_name.setdefault(normalized, {"pcs": set(), "units": 0})
-        cur["units"] = int(cur.get("units") or 0) + 1
+    async def _printers() -> int:
+        async with AsyncSessionLocal() as s:
+            rows = (
+                await s.execute(
+                    select(Printer.name, Printer.snmp_model, Printer.snmp_sys_name).where(
+                        Printer.source.in_(("snmp", "manual"))
+                    )
+                )
+            ).all()
+            return _count_tab_printers(rows)
 
-    top_monitors = sorted(
-        [
-            DashboardNameCount(
-                name=n,
-                # Count units (GLPI) + distinct PCs (PnP). It's not perfect, but gives a useful “how common” signal.
-                count=int(len(v.get("pcs") or set())) + int(v.get("units") or 0),
+    async def _service_block() -> tuple[
+        list[DashboardNameCount],
+        int,
+        int,
+        int,
+        int | None,
+        float | None,
+        str,
+        list[DashboardTimePoint],
+    ]:
+        async with AsyncSessionLocal() as s:
+            status_r = await s.execute(
+                select(ServiceRequest.status, func.count())
+                .group_by(ServiceRequest.status)
+                .order_by(func.count().desc())
             )
-            for n, v in monitors_by_name.items()
-            if (len(v.get("pcs") or set()) + int(v.get("units") or 0)) > 0
-        ],
-        key=lambda x: (-x.count, x.name.lower()),
-    )[:12]
+            by_status = [
+                DashboardNameCount(name=str(row[0]), count=int(row[1])) for row in status_r.all()
+            ]
+            status_map = {item.name: item.count for item in by_status}
+            total = sum(status_map.values())
+            active = int(status_map.get("open", 0) + status_map.get("in_progress", 0))
+            now = datetime.now(timezone.utc)
+            overdue = int(
+                await s.scalar(
+                    select(func.count())
+                    .select_from(ServiceRequest)
+                    .where(ServiceRequest.planned_close_at.is_not(None))
+                    .where(ServiceRequest.planned_close_at < now)
+                    .where(ServiceRequest.closed_at.is_(None))
+                    .where(ServiceRequest.status.notin_(["done", "cancelled"]))
+                )
+                or 0
+            )
+            plan_row = (
+                await s.execute(
+                    select(
+                        func.count().label("with_plan"),
+                        func.coalesce(
+                            func.sum(
+                                case(
+                                    (ServiceRequest.closed_at <= ServiceRequest.planned_close_at, 1),
+                                    else_=0,
+                                )
+                            ),
+                            0,
+                        ).label("on_time"),
+                    )
+                    .where(ServiceRequest.closed_at.is_not(None))
+                    .where(ServiceRequest.planned_close_at.is_not(None))
+                )
+            ).one()
+            closed_with_plan = int(plan_row.with_plan or 0)
+            on_time_pct = (
+                int(round((int(plan_row.on_time or 0) / closed_with_plan) * 100))
+                if closed_with_plan > 0
+                else None
+            )
+            _opened = func.coalesce(ServiceRequest.opened_at, ServiceRequest.created_at)
+            avg_close_seconds = await s.scalar(
+                select(func.avg(func.extract("epoch", ServiceRequest.closed_at - _opened)))
+                .where(ServiceRequest.status == "done")
+                .where(ServiceRequest.closed_at.is_not(None))
+                .where(_opened.is_not(None))
+                .where(ServiceRequest.closed_at > _opened)
+            )
+            avg_hours = (
+                round(float(avg_close_seconds) / 3600.0, 1) if avg_close_seconds is not None else None
+            )
+            # Same UTC day buckets as build_closed_tickets_series(_as_utc_date(...)).
+            day_expr = cast(func.timezone("UTC", ServiceRequest.closed_at), Date)
+            day_rows = (
+                await s.execute(
+                    select(day_expr, func.count())
+                    .where(ServiceRequest.closed_at.is_not(None))
+                    .group_by(day_expr)
+                )
+            ).all()
+            day_counts: Counter[date] = Counter()
+            for d, c in day_rows:
+                if d is None:
+                    continue
+                if isinstance(d, datetime):
+                    d = d.date()
+                day_counts[d] += int(c or 0)
+            granularity, series = build_closed_tickets_series_from_day_counts(day_counts)
+            return by_status, total, active, overdue, on_time_pct, avg_hours, granularity, series
 
-    disk_r = await db.execute(
-        select(
-            Computer.hostname,
-            func.avg(DiskVolume.used_percent).label("avg_used_percent"),
-            func.count(DiskVolume.id).label("volume_count"),
-        )
-        .join(DiskVolume, DiskVolume.computer_id == Computer.id)
-        .where(DiskVolume.mount.op("~")("^[A-Za-z]:"))
-        .group_by(Computer.hostname)
-        .order_by(func.avg(DiskVolume.used_percent).desc())
-        .limit(10)
-    )
-    top_disk_devices = [
-        DashboardDiskDeviceRank(
-            hostname=str(row[0]),
-            avg_used_percent=float(row[1] or 0.0),
-            volume_count=int(row[2] or 0),
-        )
-        for row in disk_r.all()
-    ]
+    async def _computer_dists() -> tuple[
+        list[DashboardNameCount],
+        list[DashboardNameCount],
+        list[DashboardNameCount],
+        list[DashboardRamBucket],
+        list[DashboardNameCount],
+    ]:
+        async with AsyncSessionLocal() as s:
+            _os_r = await s.execute(select(Computer.os_name, func.count()).group_by(Computer.os_name))
+            by_os = [
+                DashboardNameCount(name=n, count=c)
+                for n, c in aggregate_os_counts([(row[0], int(row[1])) for row in _os_r.all()])
+            ]
+            mfr_r = await s.execute(
+                select(Computer.manufacturer, func.count()).group_by(Computer.manufacturer)
+            )
+            by_manufacturer = [
+                DashboardNameCount(name=n, count=c)
+                for n, c in aggregate_manufacturer_counts(
+                    [(row[0], int(row[1])) for row in mfr_r.all()], limit=12
+                )
+            ]
+            model_r = await s.execute(select(Computer.model, func.count()).group_by(Computer.model))
+            by_system_model = [
+                DashboardNameCount(name=n, count=c)
+                for n, c in aggregate_system_model_counts(
+                    [(row[0], int(row[1])) for row in model_r.all()], limit=12
+                )
+            ]
+            r = await s.execute(
+                select(_ram_gb_rounded.label("gb_bucket"), func.count()).group_by(_ram_gb_rounded)
+            )
+            ram_buckets_raw: list[DashboardRamBucket] = []
+            for row in r.all():
+                gb_val, cnt = row[0], int(row[1])
+                if gb_val is None:
+                    label = "неизвестно"
+                else:
+                    label = f"{int(round(float(gb_val)))} ГБ"
+                ram_buckets_raw.append(DashboardRamBucket(label=label, count=cnt))
+            ram_buckets = sorted(ram_buckets_raw, key=lambda b: _ram_bucket_sort_key(b.label))
+            cpu_r = await s.execute(
+                select(Computer.cpu, func.count())
+                .where(Computer.cpu.is_not(None))
+                .where(Computer.cpu != "")
+                .group_by(Computer.cpu)
+                .order_by(func.count().desc())
+                .limit(8)
+            )
+            top_cpu = [
+                DashboardNameCount(
+                    name=(n := str(row[0]))[:120] if len(str(row[0])) > 120 else str(row[0]),
+                    count=int(row[1]),
+                )
+                for row in cpu_r.all()
+            ]
+            return by_os, by_manufacturer, by_system_model, ram_buckets, top_cpu
 
-    raw_r = await db.execute(select(Computer.raw_payload).where(Computer.raw_payload.is_not(None)))
-    pd_total, pd_by_media, pd_by_size, pd_by_variant = aggregate_physical_disks([row[0] for row in raw_r.all()])
-    physical_disks_by_media = sorted(
-        [DashboardNameCount(name=n, count=c) for n, c in pd_by_media.items()],
-        key=lambda x: (media_sort_key(x.name), -x.count),
-    )
-    physical_disks_by_size = sorted(
-        [DashboardRamBucket(label=n, count=c) for n, c in pd_by_size.items()],
-        key=lambda b: disk_size_sort_key(b.label),
-    )
-    physical_disks_by_variant = sorted(
-        [DashboardNameCount(name=n, count=c) for n, c in pd_by_variant.items()],
-        key=lambda x: (disk_variant_sort_key(x.name), -x.count),
+    async def _top_software() -> list[DashboardNameCount]:
+        async with AsyncSessionLocal() as s:
+            sw_r = await s.execute(
+                select(InstalledSoftware.name, pc_sw.label("cnt"))
+                .join(Computer, Computer.id == InstalledSoftware.computer_id)
+                .group_by(InstalledSoftware.name)
+                .order_by(pc_sw.desc())
+                .limit(10)
+            )
+            return [DashboardNameCount(name=str(row[0]), count=int(row[1])) for row in sw_r.all()]
+
+    async def _software_families() -> tuple[list[DashboardNameCount], list[DashboardNameCount]]:
+        """Same classify_software_name quality; one row per title via array_agg(distinct pc)."""
+        async with AsyncSessionLocal() as s:
+            fam_r = await s.execute(
+                select(
+                    InstalledSoftware.name,
+                    func.array_agg(func.distinct(InstalledSoftware.computer_id)),
+                )
+                .join(Computer, Computer.id == InstalledSoftware.computer_id)
+                .group_by(InstalledSoftware.name)
+            )
+            browsers_ids: dict[str, set[int]] = {}
+            office_ids: dict[str, set[int]] = {}
+            for sw_name, pc_ids in fam_r.all():
+                fam = classify_software_name(str(sw_name))
+                if fam is None:
+                    continue
+                bucket = browsers_ids if fam.category == "browser" else office_ids
+                dest = bucket.setdefault(fam.name, set())
+                for cid in pc_ids or []:
+                    if cid is not None:
+                        dest.add(int(cid))
+            browsers = [
+                DashboardNameCount(name=n, count=len(ids))
+                for n, ids in sorted(browsers_ids.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+            ]
+            office_suites = [
+                DashboardNameCount(name=n, count=len(ids))
+                for n, ids in sorted(office_ids.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+            ]
+            return browsers, office_suites
+
+    async def _peripherals() -> tuple[list[DashboardPeripheralKind], list[DashboardNameCount]]:
+        async with AsyncSessionLocal() as s:
+            pk_r = await s.execute(
+                select(Peripheral.kind, pe_pc.label("cnt"))
+                .join(Computer, Computer.id == Peripheral.computer_id)
+                .group_by(Peripheral.kind)
+            )
+            pk_rows = [
+                DashboardPeripheralKind(
+                    kind=str(row[0]),
+                    label=_PERIPHERAL_KIND_LABELS.get(str(row[0]), str(row[0])),
+                    pc_count=int(row[1]),
+                )
+                for row in pk_r.all()
+            ]
+            peripheral_kinds = sorted(
+                pk_rows,
+                key=lambda x: (
+                    _PERIPHERAL_KIND_ORDER.index(x.kind) if x.kind in _PERIPHERAL_KIND_ORDER else 50,
+                    -x.pc_count,
+                ),
+            )
+            tp_r = await s.execute(
+                select(Peripheral.name, pe_pc.label("cnt"))
+                .join(Computer, Computer.id == Peripheral.computer_id)
+                .group_by(Peripheral.name)
+                .order_by(pe_pc.desc())
+                .limit(12)
+            )
+            top_peripherals = [
+                DashboardNameCount(
+                    name=(n[:140] + "…") if len(n := str(row[0])) > 140 else n,
+                    count=int(row[1]),
+                )
+                for row in tp_r.all()
+            ]
+            return peripheral_kinds, top_peripherals
+
+    async def _monitors() -> list[DashboardNameCount]:
+        async with AsyncSessionLocal() as s:
+            mon_r = await s.execute(
+                select(Peripheral.name, Peripheral.computer_id)
+                .join(Computer, Computer.id == Peripheral.computer_id)
+                .where(Peripheral.kind == "monitor")
+                .where(Peripheral.name.is_not(None))
+                .where(Peripheral.name != "")
+            )
+            monitors_by_name: dict[str, dict[str, object]] = {}
+            for row in mon_r.all():
+                raw_name = str(row[0]).strip()
+                pc_id = int(row[1])
+                if not _is_real_monitor_name(raw_name):
+                    continue
+                normalized = _normalize_monitor_name(raw_name)
+                cur = monitors_by_name.setdefault(normalized, {"pcs": set(), "units": 0})
+                (cur["pcs"]).add(pc_id)  # type: ignore[union-attr]
+
+            glpi_r = await s.execute(
+                select(Monitor.name).where(Monitor.name.is_not(None)).where(Monitor.name != "")
+            )
+            for row in glpi_r.all():
+                raw_name = str(row[0]).strip()
+                if not raw_name:
+                    continue
+                normalized = _normalize_monitor_name(raw_name)
+                cur = monitors_by_name.setdefault(normalized, {"pcs": set(), "units": 0})
+                cur["units"] = int(cur.get("units") or 0) + 1
+
+        return sorted(
+            [
+                DashboardNameCount(
+                    name=n,
+                    count=int(len(v.get("pcs") or set())) + int(v.get("units") or 0),
+                )
+                for n, v in monitors_by_name.items()
+                if (len(v.get("pcs") or set()) + int(v.get("units") or 0)) > 0
+            ],
+            key=lambda x: (-x.count, x.name.lower()),
+        )[:12]
+
+    async def _disk_devices() -> list[DashboardDiskDeviceRank]:
+        async with AsyncSessionLocal() as s:
+            disk_r = await s.execute(
+                select(
+                    Computer.hostname,
+                    func.avg(DiskVolume.used_percent).label("avg_used_percent"),
+                    func.count(DiskVolume.id).label("volume_count"),
+                )
+                .join(DiskVolume, DiskVolume.computer_id == Computer.id)
+                .where(DiskVolume.mount.op("~")("^[A-Za-z]:"))
+                .group_by(Computer.hostname)
+                .order_by(func.avg(DiskVolume.used_percent).desc())
+                .limit(10)
+            )
+            return [
+                DashboardDiskDeviceRank(
+                    hostname=str(row[0]),
+                    avg_used_percent=float(row[1] or 0.0),
+                    volume_count=int(row[2] or 0),
+                )
+                for row in disk_r.all()
+            ]
+
+    async def _physical_disks() -> tuple[
+        int, list[DashboardNameCount], list[DashboardRamBucket], list[DashboardNameCount]
+    ]:
+        async with AsyncSessionLocal() as s:
+            raw_r = await s.execute(select(Computer.raw_payload).where(Computer.raw_payload.is_not(None)))
+            pd_total, pd_by_media, pd_by_size, pd_by_variant = aggregate_physical_disks(
+                [row[0] for row in raw_r.all()]
+            )
+        physical_disks_by_media = sorted(
+            [DashboardNameCount(name=n, count=c) for n, c in pd_by_media.items()],
+            key=lambda x: (media_sort_key(x.name), -x.count),
+        )
+        physical_disks_by_size = sorted(
+            [DashboardRamBucket(label=n, count=c) for n, c in pd_by_size.items()],
+            key=lambda b: disk_size_sort_key(b.label),
+        )
+        physical_disks_by_variant = sorted(
+            [DashboardNameCount(name=n, count=c) for n, c in pd_by_variant.items()],
+            key=lambda x: (disk_variant_sort_key(x.name), -x.count),
+        )
+        return pd_total, physical_disks_by_media, physical_disks_by_size, physical_disks_by_variant
+
+    (
+        (computers_total, computers_online, computers_offline, computers_unknown),
+        (software_installations_total, software_unique_titles),
+        tags_in_directory,
+        snmp_printers_total,
+        (
+            service_requests_by_status,
+            service_requests_total,
+            service_requests_active,
+            service_requests_overdue,
+            service_requests_on_time_pct,
+            service_requests_avg_close_hours,
+            closed_granularity,
+            closed_series,
+        ),
+        (by_os, by_manufacturer, by_system_model, ram_buckets, top_cpu),
+        top_software,
+        (browsers, office_suites),
+        (peripheral_kinds, top_peripherals),
+        top_monitors,
+        top_disk_devices,
+        (pd_total, physical_disks_by_media, physical_disks_by_size, physical_disks_by_variant),
+    ) = await asyncio.gather(
+        _fleet(),
+        _software_totals(),
+        _tags(),
+        _printers(),
+        _service_block(),
+        _computer_dists(),
+        _top_software(),
+        _software_families(),
+        _peripherals(),
+        _monitors(),
+        _disk_devices(),
+        _physical_disks(),
     )
 
     return DashboardSummary(

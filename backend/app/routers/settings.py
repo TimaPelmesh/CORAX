@@ -7,7 +7,7 @@ import secrets
 from app.auth import get_current_superuser
 from app.database import get_db
 from app.ldap_config import get_effective_ldap_config
-from app.models import Bitrix24Config, LdapConfig, User
+from app.models import Bitrix24Config, LdapConfig, User, ZabbixConfig
 from app.schemas import (
     Bitrix24ConfigOut,
     Bitrix24ConfigUpdate,
@@ -15,7 +15,13 @@ from app.schemas import (
     LdapConfigUpdate,
     LdapTestRequest,
     LdapTestResponse,
+    ZabbixConfigOut,
+    ZabbixConfigUpdate,
+    ZabbixTestResponse,
 )
+from app.zabbix_client import ZabbixClientError, probe_zabbix
+from app.zabbix_service import invalidate_zabbix_cache
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -228,3 +234,118 @@ async def update_bitrix24_settings(
         default_category=row.default_category or "bitrix24",
     )
 
+async def _get_or_create_zabbix(db: AsyncSession) -> ZabbixConfig:
+    row = await db.get(ZabbixConfig, 1)
+    if row is None:
+        row = ZabbixConfig(
+            id=1,
+            enabled=False,
+            base_url="",
+            api_token="",
+            verify_tls=True,
+            last_test_message="",
+            last_version="",
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+    return row
+
+
+def _zabbix_out(row: ZabbixConfig) -> ZabbixConfigOut:
+    return ZabbixConfigOut(
+        enabled=bool(row.enabled),
+        base_url=row.base_url or "",
+        api_token_set=bool((row.api_token or "").strip()),
+        verify_tls=bool(row.verify_tls),
+        last_test_at=row.last_test_at,
+        last_test_ok=row.last_test_ok,
+        last_test_message=row.last_test_message or "",
+        last_version=row.last_version or "",
+        last_hosts_total=row.last_hosts_total,
+        last_problems_total=row.last_problems_total,
+    )
+
+
+@router.get("/zabbix", response_model=ZabbixConfigOut)
+async def get_zabbix_settings(
+    _: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_db),
+):
+    return _zabbix_out(await _get_or_create_zabbix(db))
+
+
+@router.put("/zabbix", response_model=ZabbixConfigOut)
+async def update_zabbix_settings(
+    body: ZabbixConfigUpdate,
+    _: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await _get_or_create_zabbix(db)
+    patch = body.model_dump(exclude_unset=True)
+    if "enabled" in patch and patch["enabled"] is not None:
+        row.enabled = bool(patch["enabled"])
+    if "api_token" in patch and patch["api_token"] is not None:
+        token = (patch["api_token"] or "").replace("\u00a0", " ").strip()
+        if token:
+            row.api_token = token
+    if "base_url" in patch and patch["base_url"] is not None:
+        row.base_url = (patch["base_url"] or "").replace("\u00a0", " ").strip()
+    if "verify_tls" in patch and patch["verify_tls"] is not None:
+        row.verify_tls = bool(patch["verify_tls"])
+    await db.commit()
+    await db.refresh(row)
+    invalidate_zabbix_cache()
+    return _zabbix_out(row)
+
+
+@router.post("/zabbix/test", response_model=ZabbixTestResponse)
+async def test_zabbix_settings(
+    _: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_db),
+):
+    import asyncio
+
+    row = await _get_or_create_zabbix(db)
+    try:
+        result = await asyncio.to_thread(
+            probe_zabbix,
+            base_url=row.base_url or "",
+            api_token=row.api_token or "",
+            verify_tls=bool(row.verify_tls),
+        )
+    except ZabbixClientError as exc:
+        row.last_test_at = datetime.now(timezone.utc)
+        row.last_test_ok = False
+        row.last_test_message = str(exc)[:500]
+        await db.commit()
+        invalidate_zabbix_cache()
+        return ZabbixTestResponse(ok=False, message=str(exc))
+    except Exception as exc:
+        row.last_test_at = datetime.now(timezone.utc)
+        row.last_test_ok = False
+        row.last_test_message = f"Ошибка: {exc}"[:500]
+        await db.commit()
+        invalidate_zabbix_cache()
+        raise HTTPException(status_code=502, detail=f"Ошибка Zabbix: {exc}") from exc
+
+    row.last_test_at = datetime.now(timezone.utc)
+    row.last_test_ok = True
+    row.last_test_message = result.message[:500]
+    row.last_version = (result.version or "")[:64]
+    row.last_hosts_total = result.hosts_total
+    row.last_problems_total = result.problems_total
+    await db.commit()
+    invalidate_zabbix_cache()
+    return ZabbixTestResponse(
+        ok=True,
+        message=result.message,
+        version=result.version,
+        hosts_total=result.hosts_total,
+        problems_total=result.problems_total,
+        api_url=result.api_url or None,
+        auth_mode=result.auth_mode or None,
+        scheme=result.scheme or None,
+        sample_hosts=list(result.sample_hosts or []),
+        sample_problems=list(result.sample_problems or []),
+    )

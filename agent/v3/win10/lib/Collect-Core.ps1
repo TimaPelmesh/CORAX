@@ -206,14 +206,14 @@ function Get-CoreInventoryPayload {
 
     Set-AgentProgress '[1/4] WMI: system, BIOS, OS, CPU...' 20
     Log '[core] WMI: system, BIOS, OS, CPU...'
-    $cs = Get-CimInstance Win32_ComputerSystem
-    $bios = Get-CimInstance Win32_BIOS
-    $os = Get-CimInstance Win32_OperatingSystem
-    $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $bios = Get-CimInstance Win32_BIOS -ErrorAction SilentlyContinue
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    $cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
 
-    $serial = Get-CleanWmiText $(if ($bios.SerialNumber) { $bios.SerialNumber })
-    $mfr = Get-CleanWmiText $(if ($cs.Manufacturer) { $cs.Manufacturer })
-    $model = Get-CleanWmiText $(if ($cs.Model) { $cs.Model })
+    $serial = Get-CleanWmiText $(if ($bios -and $bios.SerialNumber) { $bios.SerialNumber })
+    $mfr = Get-CleanWmiText $(if ($cs -and $cs.Manufacturer) { $cs.Manufacturer })
+    $model = Get-CleanWmiText $(if ($cs -and $cs.Model) { $cs.Model })
 
     $bb = Get-CimInstance Win32_BaseBoard -ErrorAction SilentlyContinue
     $mbMfr = $mbProd = $null
@@ -225,8 +225,13 @@ function Get-CoreInventoryPayload {
         if (-not $model) { $model = $mbProd }
     }
 
-    $ram = [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2)
-    $cpuName = Get-SanitizedAgentText $(if ($cpu.Name) { $cpu.Name })
+    $ram = $null
+    try {
+        if ($cs -and $cs.TotalPhysicalMemory) {
+            $ram = [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2)
+        }
+    } catch { }
+    $cpuName = Get-SanitizedAgentText $(if ($cpu -and $cpu.Name) { $cpu.Name })
     $memPct = $null
     try {
         $tMem = [double]$os.TotalVisibleMemorySize * 1KB
@@ -256,8 +261,8 @@ function Get-CoreInventoryPayload {
         memory_used_percent      = $memPct
         gpu_name                 = $gpu
         disks                    = $disks
-        os_name                  = if ($os.Caption) { ($os.Caption -split '\|')[0].Trim() } else { 'Windows' }
-        os_version               = "$($os.Version) build $($os.BuildNumber)".Trim()
+        os_name                  = if ($os -and $os.Caption) { ($os.Caption -split '\|')[0].Trim() } else { 'Windows' }
+        os_version               = if ($os) { "$($os.Version) build $($os.BuildNumber)".Trim() } else { $null }
         manufacturer             = $mfr
         model                    = $model
         motherboard_manufacturer = $mbMfr

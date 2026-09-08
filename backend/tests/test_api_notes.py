@@ -36,6 +36,33 @@ def test_notes_create_share_acl_and_dates(client: TestClient, auth_headers: dict
     assert note["is_owner"] is True
     assert note["plan_start"] == start
 
+    styled = client.patch(
+        f"/api/v1/notes/{note_id}",
+        headers=auth_headers,
+        json={"color": "green", "mark": "flag"},
+    )
+    assert styled.status_code == 200, styled.text
+    assert styled.json()["color"] == "green"
+    assert styled.json()["mark"] == "flag"
+
+    bad_color = client.patch(
+        f"/api/v1/notes/{note_id}",
+        headers=auth_headers,
+        json={"color": "neon"},
+    )
+    assert bad_color.status_code == 422
+
+    cal = client.get(
+        "/api/v1/dashboard/calendar",
+        headers=auth_headers,
+        params={"month": start},
+    )
+    assert cal.status_code == 200, cal.text
+    plan_items = [row for row in cal.json() if row.get("kind") == "plan" and row.get("id") == note_id]
+    assert plan_items
+    assert plan_items[0]["color"] == "green"
+    assert plan_items[0]["mark"] == "flag"
+
     # Peer cannot see before share
     peer_login = client.post(
         "/api/v1/auth/login/json",

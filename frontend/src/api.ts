@@ -251,6 +251,9 @@ export type NoteShareRow = {
   can_edit: boolean
 }
 
+export type NoteColor = 'blue' | 'green' | 'amber' | 'rose' | 'violet' | 'slate'
+export type NoteMark = 'dot' | 'flag' | 'star'
+
 export type NoteListItem = {
   id: number
   title: string
@@ -258,6 +261,8 @@ export type NoteListItem = {
   owner_username?: string | null
   plan_start?: string | null
   plan_end?: string | null
+  color?: NoteColor | null
+  mark?: NoteMark | null
   updated_at: string
   can_edit: boolean
   is_owner: boolean
@@ -273,6 +278,8 @@ export type NoteRow = {
   owner_full_name?: string | null
   plan_start?: string | null
   plan_end?: string | null
+  color?: NoteColor | null
+  mark?: NoteMark | null
   created_at: string
   updated_at: string
   can_edit: boolean
@@ -745,6 +752,8 @@ export type DashboardCalendarItem = {
   title: string
   start_date: string
   end_date?: string | null
+  color?: NoteColor | null
+  mark?: NoteMark | null
 }
 
 export type RiskFinding = {
@@ -915,6 +924,93 @@ export type Bitrix24Config = {
   incoming_secret: string
   default_priority: string
   default_category: string
+}
+
+export type ZabbixConfig = {
+  enabled: boolean
+  base_url: string
+  api_token_set: boolean
+  verify_tls: boolean
+  last_test_at?: string | null
+  last_test_ok?: boolean | null
+  last_test_message?: string
+  last_version?: string
+  last_hosts_total?: number | null
+  last_problems_total?: number | null
+}
+
+export type ZabbixTestResult = {
+  ok: boolean
+  message: string
+  version?: string | null
+  hosts_total?: number | null
+  problems_total?: number | null
+  api_url?: string | null
+  auth_mode?: string | null
+  scheme?: string | null
+  sample_hosts?: string[]
+  sample_problems?: string[]
+}
+
+export type ZabbixProblem = {
+  eventid: string
+  name: string
+  severity: number
+  severity_label: string
+  clock: number | null
+  hosts: string[]
+}
+
+export type ZabbixHostRow = {
+  hostid: string
+  host: string
+  name: string
+  status: number
+  ip: string
+  disabled?: boolean
+}
+
+export type ZabbixOverview = {
+  enabled: boolean
+  available: boolean
+  message: string
+  ui_url?: string
+  version?: string | null
+  hosts_total?: number | null
+  problems_total?: number | null
+  problems: ZabbixProblem[]
+  severity_sample?: Record<string, number>
+  cached?: boolean
+}
+
+export type ZabbixProblemsResponse = {
+  enabled: boolean
+  available: boolean
+  message: string
+  items: ZabbixProblem[]
+  total?: number | null
+  cached?: boolean
+}
+
+export type ZabbixHostsResponse = {
+  enabled: boolean
+  available: boolean
+  message: string
+  items: ZabbixHostRow[]
+  total?: number | null
+  cached?: boolean
+}
+
+export type ZabbixHostStatus = {
+  enabled: boolean
+  available: boolean
+  matched: boolean
+  message: string
+  ui_url?: string
+  host?: ZabbixHostRow | null
+  problems_total: number
+  problems: ZabbixProblem[]
+  cached?: boolean
 }
 
 export type TicketHandlerPipelineStep = {
@@ -1707,6 +1803,8 @@ export const api = {
     body_html?: string
     plan_start?: string | null
     plan_end?: string | null
+    color?: NoteColor | null
+    mark?: NoteMark | null
   }) => request<NoteRow>(`${API_PREFIX}/notes`, { method: 'POST', json: body }),
 
   updateNote: (
@@ -1716,6 +1814,8 @@ export const api = {
       body_html?: string
       plan_start?: string | null
       plan_end?: string | null
+      color?: NoteColor | null
+      mark?: NoteMark | null
     },
   ) => request<NoteRow>(`${API_PREFIX}/notes/${id}`, { method: 'PATCH', json: body }),
 
@@ -1770,6 +1870,31 @@ export const api = {
 
   updateBitrix24Config: (body: Partial<Bitrix24Config>) =>
     request<Bitrix24Config>(`${API_PREFIX}/settings/bitrix24`, { method: 'PUT', json: body }),
+
+  zabbixConfig: () => request<ZabbixConfig>(`${API_PREFIX}/settings/zabbix`),
+
+  updateZabbixConfig: (body: {
+    enabled?: boolean
+    base_url?: string
+    api_token?: string
+    verify_tls?: boolean
+  }) => request<ZabbixConfig>(`${API_PREFIX}/settings/zabbix`, { method: 'PUT', json: body }),
+
+  zabbixTest: () =>
+    request<ZabbixTestResult>(`${API_PREFIX}/settings/zabbix/test`, { method: 'POST' }),
+
+  zabbixOverview: () => request<ZabbixOverview>(`${API_PREFIX}/zabbix/overview`),
+
+  zabbixProblems: (limit = 50) =>
+    request<ZabbixProblemsResponse>(`${API_PREFIX}/zabbix/problems?limit=${limit}`),
+
+  zabbixHosts: (limit = 100) =>
+    request<ZabbixHostsResponse>(`${API_PREFIX}/zabbix/hosts?limit=${limit}`),
+
+  zabbixHostStatus: (hostname: string) =>
+    request<ZabbixHostStatus>(
+      `${API_PREFIX}/zabbix/host-status?hostname=${encodeURIComponent(hostname)}`,
+    ),
 
   ticketHandlerConfig: () => request<TicketHandlerConfig>(`${API_PREFIX}/ticket-handler/config`),
 

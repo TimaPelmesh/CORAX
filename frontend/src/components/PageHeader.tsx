@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 type PageHeaderProps = {
-  icon: ReactNode
+  icon?: ReactNode
   title: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode

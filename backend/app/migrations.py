@@ -503,6 +503,64 @@ def _migrate_notes_tables(sync_conn) -> None:
         sync_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_note_shares_user_id ON note_shares (user_id)"))
 
 
+def _migrate_zabbix_config(sync_conn) -> None:
+    if "zabbix_config" in _table_names(sync_conn):
+        return
+    if sync_conn.dialect.name == "sqlite":
+        sync_conn.execute(
+            text(
+                """
+                CREATE TABLE zabbix_config (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  enabled INTEGER NOT NULL DEFAULT 0,
+                  base_url VARCHAR(512) NOT NULL DEFAULT '',
+                  api_token VARCHAR(512) NOT NULL DEFAULT '',
+                  verify_tls INTEGER NOT NULL DEFAULT 1,
+                  last_test_at TIMESTAMP,
+                  last_test_ok INTEGER,
+                  last_test_message VARCHAR(512) NOT NULL DEFAULT '',
+                  last_version VARCHAR(64) NOT NULL DEFAULT '',
+                  last_hosts_total INTEGER,
+                  last_problems_total INTEGER,
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+    else:
+        sync_conn.execute(
+            text(
+                """
+                CREATE TABLE zabbix_config (
+                  id SERIAL PRIMARY KEY,
+                  enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                  base_url VARCHAR(512) NOT NULL DEFAULT '',
+                  api_token VARCHAR(512) NOT NULL DEFAULT '',
+                  verify_tls BOOLEAN NOT NULL DEFAULT TRUE,
+                  last_test_at TIMESTAMPTZ,
+                  last_test_ok BOOLEAN,
+                  last_test_message VARCHAR(512) NOT NULL DEFAULT '',
+                  last_version VARCHAR(64) NOT NULL DEFAULT '',
+                  last_hosts_total INTEGER,
+                  last_problems_total INTEGER,
+                  updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+        )
+
+
+def _migrate_notes_calendar_style(sync_conn) -> None:
+    """Per-note calendar color + mark for planner days (no separate day table)."""
+    if "notes" not in _table_names(sync_conn):
+        return
+    cols = _column_names(sync_conn, "notes")
+    if "color" not in cols:
+        sync_conn.execute(text("ALTER TABLE notes ADD COLUMN color VARCHAR(16)"))
+    if "mark" not in cols:
+        sync_conn.execute(text("ALTER TABLE notes ADD COLUMN mark VARCHAR(16)"))
+
+
 def _migrate_network_extras_json(sync_conn) -> None:
     if "network_devices" not in _table_names(sync_conn):
         return
@@ -1469,6 +1527,8 @@ _MIGRATIONS: list[tuple[str, MigrationFn]] = [
     ("2026-07-16_computers_ip_address", _migrate_computers_ip_address),
     ("2026-07-16_computers_ping_status", _migrate_computers_ping_status),
     ("2026-07-27_notes", _migrate_notes_tables),
+    ("2026-09-08_notes_calendar_style", _migrate_notes_calendar_style),
+    ("2026-09-08_zabbix_config", _migrate_zabbix_config),
     ("2026-07-30_search_index", _migrate_search_index),
     ("2026-08-04_ticket_handler", _migrate_ticket_handler_tables),
     ("2026-08-04_service_request_ai_fields", _migrate_service_request_ai_fields),

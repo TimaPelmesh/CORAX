@@ -105,6 +105,7 @@ auto run_with_ui(AgentSplash& splash, bool use_splash, int progress_floor, int p
     // into a std::runtime_error inside the worker so the catch(...) below
     // rethrows a readable message instead of the process disappearing.
     install_seh_translator();
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     try {
       result = fn();
     } catch (...) {
@@ -157,10 +158,8 @@ int main(int argc, char** argv) {
   const bool do_pause = !silent_mode && !opt.no_pause && (opt.pause || opt.console || opt.verbose);
 
   if (console_out || do_pause) ensure_console();
-  else if (GetConsoleWindow()) {
-    // Double-click with GUI: no console noise.
-    FreeConsole();
-  }
+  // Keep the inherited console attached. Detaching made `start /wait` in
+  // corax_run.cmd return while the splash was still up (or about to crash).
 
   AgentSplash splash;
   if (use_splash) {
@@ -169,6 +168,7 @@ int main(int argc, char** argv) {
     splash.set_progress(8);
   }
 
+  try {
   say("=== CORAX-Agent start ===", console_out);
   say("log=" + log_path(), console_out);
   say("credential=" + secure_config_status(), console_out);
@@ -220,10 +220,6 @@ int main(int argc, char** argv) {
 
   const std::string hostname = util::computer_hostname();
   if (!hostname.empty()) say("hostname=" + hostname, console_out);
-  if (cfg.helpdesk_shortcut) {
-    const std::string shortcut = ensure_helpdesk_shortcut(cfg.server_url, hostname);
-    say(shortcut, console_out);
-  }
 
   say("1/2 Сбор инвентаризации…", console_out);
 
@@ -232,16 +228,14 @@ int main(int argc, char** argv) {
     payload = run_with_ui(splash, use_splash, 20, 70, "Сбор инвентаризации…",
                           [&] { return build_inventory_payload(cfg, os); });
   } catch (const std::exception& ex) {
-    std::string err = std::string("Сбой сбора: ") + ex.what();
-    say("ERROR: " + err, true);
-    if (use_splash) splash.finish_error(err + "\n\nЛог: " + log_path());
-    else if (do_pause) wait_enter("\nНажмите Enter… ");
-    return 3;
+    say(std::string("WARN: collect exception, sending minimal: ") + ex.what(), true);
+    payload = build_minimal_inventory_payload(cfg, os, ex.what());
   } catch (...) {
-    say("ERROR: collect failed", true);
-    if (use_splash) splash.finish_error("Сбой сбора данных.\n\nЛог: " + log_path());
-    else if (do_pause) wait_enter("\nНажмите Enter… ");
-    return 3;
+    say("WARN: collect failed, sending minimal payload", true);
+    payload = build_minimal_inventory_payload(cfg, os, "unhandled collect error");
+  }
+  if (payload.empty()) {
+    payload = build_minimal_inventory_payload(cfg, os, "empty collect payload");
   }
   say("   собрано байт: " + std::to_string(payload.size()), console_out);
   if (!opt.dump_path.empty()) {
@@ -278,6 +272,11 @@ int main(int argc, char** argv) {
   say("OK HTTP " + std::to_string(res.status), console_out);
   say("=== CORAX-Agent done ===", console_out);
 
+  if (cfg.helpdesk_shortcut) {
+    const std::string shortcut = ensure_helpdesk_shortcut(cfg.server_url, hostname);
+    say(shortcut, console_out);
+  }
+
   if (use_splash) {
     splash.set_progress(100);
     splash.finish_ok("Готово — отчёт отправлен.\n\nСервер:\n" + cfg.server_url + "\n\nОС: " +
@@ -287,4 +286,18 @@ int main(int argc, char** argv) {
     wait_enter("\nГотово. Enter — закрыть… ");
   }
   return 0;
+  } catch (const std::exception& ex) {
+    say(std::string("ERROR: unhandled: ") + ex.what(), true);
+    if (use_splash) {
+      splash.finish_error(std::string("Сбой агента:\n") + ex.what() + "\n\nЛог: " + log_path());
+    } else if (do_pause) {
+      wait_enter("\nНажмите Enter… ");
+    }
+    return 1;
+  } catch (...) {
+    say("ERROR: unhandled unknown exception", true);
+    if (use_splash) splash.finish_error("Необработанный сбой агента.\n\nЛог: " + log_path());
+    else if (do_pause) wait_enter("\nНажмите Enter… ");
+    return 1;
+  }
 }

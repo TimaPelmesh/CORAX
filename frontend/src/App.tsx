@@ -52,6 +52,9 @@ const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ def
 const SettingsBitrix24Page = lazy(() =>
   import('./pages/SettingsBitrix24Page').then((module) => ({ default: module.SettingsBitrix24Page })),
 )
+const SettingsZabbixPage = lazy(() =>
+  import('./pages/SettingsZabbixPage').then((module) => ({ default: module.SettingsZabbixPage })),
+)
 const SettingsDatabasePage = lazy(() =>
   import('./pages/SettingsDatabasePage').then((module) => ({ default: module.SettingsDatabasePage })),
 )
@@ -68,6 +71,9 @@ const WikiRagPage = lazy(() =>
   import('./pages/WikiRagPage').then((module) => ({ default: module.WikiRagPage })),
 )
 const NotesPage = lazy(() => import('./pages/NotesPage').then((module) => ({ default: module.NotesPage })))
+const KnowledgeZabbixPage = lazy(() =>
+  import('./pages/KnowledgeZabbixPage').then((module) => ({ default: module.KnowledgeZabbixPage })),
+)
 const WarehousePage = lazy(() =>
   import('./pages/WarehousePage').then((module) => ({ default: module.WarehousePage })),
 )
@@ -82,9 +88,6 @@ const SelfServicePage = lazy(() =>
 )
 const TicketHandlerClientPage = lazy(() =>
   import('./pages/TicketHandlerClientPage').then((module) => ({ default: module.TicketHandlerClientPage })),
-)
-const TicketHandlerPage = lazy(() =>
-  import('./pages/TicketHandlerPage').then((module) => ({ default: module.TicketHandlerPage })),
 )
 const GuidePage = lazy(() => import('./pages/GuidePage').then((module) => ({ default: module.GuidePage })))
 
@@ -147,7 +150,7 @@ export default function App() {
         <Route path="computers" element={<ComputersPage />} />
         <Route path="printers" element={<PrintersPage />} />
         <Route path="network" element={<NetworkPage />} />
-        <Route path="requests/handler" element={<TicketHandlerPage />} />
+        <Route path="requests/handler" element={<Navigate to="/requests/database" replace />} />
         <Route path="requests" element={<ServiceRequestsPage />}>
           <Route index element={null} />
           <Route path="database" element={null} />
@@ -160,6 +163,7 @@ export default function App() {
         <Route path="settings/categories" element={<SettingsCategoriesPage />} />
         <Route path="settings/ldap" element={<SettingsLdapPage />} />
         <Route path="settings/bitrix24" element={<SettingsBitrix24Page />} />
+        <Route path="settings/zabbix" element={<SettingsZabbixPage />} />
         <Route path="settings/database" element={<SettingsDatabasePage />} />
         <Route path="settings/glpi" element={<SettingsGlpiPage />} />
         <Route path="settings/llm" element={<SettingsLlmPage />} />
@@ -172,6 +176,7 @@ export default function App() {
         <Route path="knowledge-base/guide" element={<GuidePage />} />
         <Route path="knowledge-base/wikirag" element={<WikiRagPage />} />
         <Route path="knowledge-base/notes" element={<NotesPage />} />
+        <Route path="knowledge-base/zabbix" element={<KnowledgeZabbixPage />} />
         <Route path="knowledge-base/warehouse" element={<Navigate to="/warehouse" replace />} />
         <Route path="warehouse" element={<WarehousePage />} />
       </Route>

@@ -50,6 +50,7 @@ CORAX_NETWORK_MD = f"{CORAX_FOLDER}/CORAX_сеть.md"
 CORAX_TICKETS_MD = f"{CORAX_FOLDER}/CORAX_заявки.md"
 CORAX_USERS_MD = f"{CORAX_FOLDER}/CORAX_пользователи.md"
 CORAX_TAGS_MD = f"{CORAX_FOLDER}/CORAX_теги.md"
+CORAX_ZABBIX_MD = f"{CORAX_FOLDER}/CORAX_zabbix.md"
 
 CORAX_FILE_COMMENTS: dict[str, str] = {
     CORAX_INDEX_FILENAME: "[CORAX] Системный индекс (корень): что где лежит в corax-inventory",
@@ -63,6 +64,7 @@ CORAX_FILE_COMMENTS: dict[str, str] = {
     CORAX_TICKETS_MD: "[CORAX] Сервисные заявки",
     CORAX_USERS_MD: "[CORAX] Пользователи + закреплённые ПК и ПО",
     CORAX_TAGS_MD: "[CORAX] Теги и привязка к ПК",
+    CORAX_ZABBIX_MD: "[CORAX] Zabbix: сводка интеграции (версия / хосты / проблемы)",
 }
 
 # Старые плоские снимки / CSV — удаляем при импорте/sync.
@@ -104,6 +106,7 @@ CORAX_BUNDLE_FILENAMES = (
     CORAX_TICKETS_MD,
     CORAX_USERS_MD,
     CORAX_TAGS_MD,
+    CORAX_ZABBIX_MD,
 )
 
 _STATUS_LABELS = {
@@ -1616,6 +1619,65 @@ def build_corax_context_from_data(
 async def build_corax_knowledge_bundle(db: AsyncSession) -> tuple[dict[str, str], dict[str, int]]:
     data = await _load_snapshot(db)
     bundle = build_corax_file_bundle(data)
+    # Scope A Zabbix: optional summary MD when integration is enabled and last probe OK.
+    try:
+        from app.models import ZabbixConfig
+        from app.zabbix_client import build_zabbix_wiki_markdown
+
+        zbx = await db.get(ZabbixConfig, 1)
+        if zbx is not None and bool(zbx.enabled) and zbx.last_test_ok is True:
+            sample_hosts: list[str] = []
+            sample_problems: list[str] = []
+            hosts_total = zbx.last_hosts_total
+            problems_total = zbx.last_problems_total
+            version = zbx.last_version or None
+            try:
+                from app.zabbix_service import get_overview_payload
+
+                overview = await get_overview_payload(db)
+                if overview.get("available"):
+                    hosts_total = overview.get("hosts_total", hosts_total)
+                    problems_total = overview.get("problems_total", problems_total)
+                    version = overview.get("version") or version
+                    for p in overview.get("problems") or []:
+                        if isinstance(p, dict) and (p.get("name") or "").strip():
+                            host_bit = ""
+                            hosts = p.get("hosts") or []
+                            if isinstance(hosts, list) and hosts:
+                                host_bit = f" ({hosts[0]})"
+                            sample_problems.append(f"{p['name'].strip()}{host_bit}")
+            except Exception:
+                pass
+            try:
+                from app.zabbix_service import get_hosts_payload
+
+                hosts_payload = await get_hosts_payload(db, limit=15)
+                if hosts_payload.get("available"):
+                    for h in hosts_payload.get("items") or []:
+                        if not isinstance(h, dict):
+                            continue
+                        label = (h.get("name") or h.get("host") or "").strip()
+                        if label:
+                            sample_hosts.append(label)
+            except Exception:
+                pass
+            md = build_zabbix_wiki_markdown(
+                enabled=True,
+                base_url=zbx.base_url or "",
+                version=version,
+                hosts_total=hosts_total,
+                problems_total=problems_total,
+                last_ok=zbx.last_test_ok,
+                last_message=zbx.last_test_message or None,
+                sample_hosts=sample_hosts or None,
+                sample_problems=sample_problems or None,
+            )
+            if md:
+                bundle[CORAX_ZABBIX_MD] = md
+    except Exception:
+        logger = __import__("logging").getLogger(__name__)
+        logger.exception("zabbix wiki snapshot skipped")
+
     total_chars = sum(len(v) for v in bundle.values())
     stats = {
         "computers": len(data["computers"]),
@@ -1636,7 +1698,10 @@ async def build_corax_knowledge_markdown(db: AsyncSession) -> tuple[str, dict[st
     for name in CORAX_BUNDLE_FILENAMES:
         if name == CORAX_README_FILENAME:
             continue
-        parts.append(f"# Документ: {name}\n\n{bundle[name].strip()}\n")
+        if name in bundle:
+            parts.append(f"# Документ: {name}\n\n{bundle[name].strip()}\n")
+    if CORAX_ZABBIX_MD in bundle:
+        parts.append(f"# Документ: {CORAX_ZABBIX_MD}\n\n{bundle[CORAX_ZABBIX_MD].strip()}\n")
     return "\n".join(parts).strip() + "\n", stats
 
 

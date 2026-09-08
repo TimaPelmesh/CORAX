@@ -51,10 +51,11 @@ if defined INV_MAP_DRIVE (
 if /i "%~1"=="nopause" set "INV_NOPAUSE=1"
 
 title INVENTORY AGENT :: WIN7 UPLINK
-color 0A
+set "CORAX_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%CORAX_PS%" set "CORAX_PS=%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
 
 if not defined INV_NOPAUSE if exist "%~dp0inventory_splash_win7.ps1" (
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0inventory_splash_win7.ps1"
+  "%CORAX_PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0inventory_splash_win7.ps1"
 )
 
 set "LOG_FILE=%TEMP%\inventory_agent_win7.log"
@@ -165,7 +166,7 @@ echo [%DATE% %TIME%] INVENTORY_SERVER=%INVENTORY_SERVER%>>"%LOG_FILE%"
 echo [%DATE% %TIME%] INV_DEBUG=%INV_DEBUG%>>"%LOG_FILE%"
 echo ============================================================>>"%LOG_FILE%"
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0InventoryClient_win7.ps1" 1>>"%LOG_FILE%" 2>>&1
+"%CORAX_PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0InventoryClient_win7.ps1" 1>>"%LOG_FILE%" 2>>&1
 set "ERR=%ERRORLEVEL%"
 
 echo.
@@ -181,7 +182,7 @@ if "%ERR%"=="0" (
 
 :done
 if not "%ERR%"=="0" echo.
-if not defined INV_NOPAUSE pause
+if not defined INV_NOPAUSE if not defined CORAX_INNER pause
 if defined INV_MAP_DRIVE (
   net use %INV_MAP_DRIVE% /delete /y >NUL 2>&1
 ) else (

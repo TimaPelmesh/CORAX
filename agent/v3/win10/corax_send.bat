@@ -1,16 +1,31 @@
 @echo off
 setlocal EnableExtensions
 set "ERR=0"
+set "CORAX_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%CORAX_PS%" set "CORAX_PS=%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
 
-REM CORAX Agent - Windows 10/11 launcher.
+REM ASCII-only. Use System32 powershell, never PATH powershell.exe
+REM (WindowsApps alias opens a new minimized window and this cmd vanishes).
+
 cd /d "%~dp0"
 title CORAX AGENT
-color 0A
+
+echo.
+echo   CORAX Agent
+echo   folder: %CD%
+echo.
 
 if /i "%~1"=="nopause" set "INV_NOPAUSE=1"
 
+if not exist "%CORAX_PS%" (
+  echo [BAT] ERROR: PowerShell not found:
+  echo        %CORAX_PS%
+  set "ERR=1"
+  goto :done
+)
+
 if not defined INV_NOPAUSE if exist "%~dp0corax_splash.ps1" (
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0corax_splash.ps1"
+  "%CORAX_PS%" -NoProfile -NoLogo -ExecutionPolicy Bypass -File "%~dp0corax_splash.ps1"
 )
 
 if exist "%~dp0agent_env.bat" (
@@ -37,11 +52,8 @@ if not defined AGENT_TOKEN (
   goto :done
 )
 
-echo.
-echo  // CORAX AGENT --------------------------------------------
-echo  // TARGET    %INVENTORY_SERVER%
-echo  // START     %DATE% %TIME%
-echo  // -------------------------------------------------------
+echo   TARGET  %INVENTORY_SERVER%
+echo   START   %DATE% %TIME%
 echo.
 
 if not exist "%~dp0InventoryClient.ps1" (
@@ -50,16 +62,17 @@ if not exist "%~dp0InventoryClient.ps1" (
   goto :done
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0InventoryClient.ps1"
+"%CORAX_PS%" -NoProfile -NoLogo -ExecutionPolicy Bypass -File "%~dp0InventoryClient.ps1"
 set "ERR=%ERRORLEVEL%"
 
 echo.
 if "%ERR%"=="0" (
-  echo  // STATUS  OK
+  echo   STATUS  OK
 ) else (
-  echo  // STATUS  FAILED code %ERR%
+  echo   STATUS  FAILED code %ERR%
+  echo   See corax-agent.log in this folder and %%TEMP%%\corax-agent.log
 )
 
 :done
-if not defined INV_NOPAUSE pause
+if not defined INV_NOPAUSE if not defined CORAX_INNER pause
 endlocal & exit /b %ERR%

@@ -53,6 +53,7 @@ from app.routers import (
     users,
     wikirag,
     warehouse,
+    zabbix,
     settings as settings_router,
     tls_settings,
 )
@@ -475,6 +476,7 @@ for base in ("/api/v1", "/api"):
     app.include_router(wikirag.router, prefix=base)
     app.include_router(warehouse.router, prefix=base)
     app.include_router(notes.router, prefix=base)
+    app.include_router(zabbix.router, prefix=base)
 
 
 @app.get("/api/health")

@@ -345,6 +345,9 @@ export function WikiRagChat({
         <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--color-fg)]">
           {active?.title || fallbackTitle}
         </p>
+        <span className="shrink-0 rounded-md bg-[var(--color-primary)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+          {t('wikirag.chat.askMode')}
+        </span>
         {onOpenKnowledge ? (
           <button
             type="button"
@@ -376,7 +379,12 @@ export function WikiRagChat({
           <div className="mx-auto max-w-2xl space-y-4 px-0.5 pt-[min(12vh,6rem)]">
             <p className="text-[13px] leading-relaxed text-[var(--color-fg-muted)]">{t('wikirag.chat.emptyHint')}</p>
             <div className="flex flex-col items-stretch gap-1.5">
-              {[t('wikirag.chat.sample1'), t('wikirag.chat.sample2'), t('wikirag.chat.sample3')].map((hint) => (
+              {[
+                t('wikirag.chat.sample1'),
+                t('wikirag.chat.sample2'),
+                t('wikirag.chat.sample3'),
+                t('wikirag.chat.sample4'),
+              ].map((hint) => (
                 <button
                   key={hint}
                   type="button"

@@ -317,7 +317,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: '/h — быстрый приём',
-          body: 'Заявка создаётся сразу; AI в фоне ставит категорию и предлагает тему ассистенту. Нужен включённый обработчик на сервере.',
+          body: 'Заявка создаётся сразу; AI в фоне ставит категорию и предлагает тему ассистенту. Форма /h должна быть включена в конфигурации сервера.',
         },
         {
           title: 'Пример ссылки',
@@ -746,7 +746,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: '/h — quick intake',
-          body: 'Ticket is created immediately; AI later sets category and suggests a title. Handler must be enabled on the server.',
+          body: 'Ticket is created immediately; AI later sets category and suggests a title. The /h form must be enabled in server configuration.',
         },
         {
           title: 'Link example',

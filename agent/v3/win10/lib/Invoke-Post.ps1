@@ -99,8 +99,44 @@ function Invoke-InventoryPost {
     return @{ ok = $false; body = '' }
 }
 
+function ConvertTo-AgentJson {
+    param($Payload)
+    if ($Payload -is [System.Collections.Specialized.OrderedDictionary] -or
+        $Payload -is [System.Collections.IDictionary]) {
+        $ht = @{}
+        foreach ($k in @($Payload.Keys)) { $ht[[string]$k] = $Payload[$k] }
+        $Payload = $ht
+    }
+    $json = $null
+    try {
+        Add-Type -AssemblyName System.Web.Extensions -ErrorAction Stop
+        $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+        $ser.MaxJsonLength = 67108864
+        $ser.RecursionLimit = 20
+        $json = $ser.Serialize($Payload)
+    } catch {
+        Log "WARN: JavaScriptSerializer: $($_.Exception.Message)"
+    }
+    if ([string]::IsNullOrWhiteSpace($json)) {
+        try {
+            $json = ($Payload | ConvertTo-Json -Depth 6 -Compress)
+        } catch {
+            Log "WARN: ConvertTo-Json failed, stripping software: $($_.Exception.Message)"
+            $slim = @{}
+            if ($Payload -is [System.Collections.IDictionary]) {
+                foreach ($k in @($Payload.Keys)) {
+                    if ([string]$k -eq 'software') { continue }
+                    $slim[$k] = $Payload[$k]
+                }
+            }
+            $json = ($slim | ConvertTo-Json -Depth 5 -Compress)
+        }
+    }
+    return $json
+}
+
 function Send-InventoryReport {
-    param([hashtable]$Payload, [string]$BaseUrl, [string]$Token)
+    param($Payload, [string]$BaseUrl, [string]$Token)
     try {
         $names = [enum]::GetNames([Net.SecurityProtocolType])
         if ($names -contains 'Tls12') {
@@ -110,7 +146,11 @@ function Send-InventoryReport {
 
     Add-Type -AssemblyName System.Net.Http
 
-    $json = ($Payload | ConvertTo-Json -Depth 12 -Compress)
+    $json = ConvertTo-AgentJson -Payload $Payload
+    if ([string]::IsNullOrWhiteSpace($json)) {
+        Log 'ERROR: could not serialize inventory JSON'
+        return 1
+    }
     Log ("JSON size: {0} bytes" -f $json.Length)
 
     $candidates = @(Get-InventoryUriCandidates -BaseUrl $BaseUrl)

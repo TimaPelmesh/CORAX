@@ -560,9 +560,9 @@ export function ServiceRequestsPage() {
   }, [filterCategory, query, rows, sortKey])
 
   const dbPageCount = useMemo(() => {
-    if (dbShowAll) return 1
     const n =
       tab === 'database' &&
+      !dbShowAll &&
       !query.trim() &&
       !filterCategory.trim() &&
       sortKey === 'id_desc'
@@ -580,11 +580,24 @@ export function ServiceRequestsPage() {
     visibleRows.length,
   ])
 
+  const dbListTotal = useMemo(() => {
+    if (
+      tab === 'database' &&
+      !dbShowAll &&
+      !query.trim() &&
+      !filterCategory.trim() &&
+      sortKey === 'id_desc'
+    ) {
+      return total
+    }
+    return visibleRows.length
+  }, [dbShowAll, filterCategory, query, sortKey, tab, total, visibleRows.length])
+
   const dbRowsToRender = useMemo(() => {
     if (tab !== 'database') return visibleRows
-    if (dbShowAll) return visibleRows
+    // Server already returned one page for the default sort/filter path.
     const serverPaged =
-      !query.trim() && !filterCategory.trim() && sortKey === 'id_desc'
+      !dbShowAll && !query.trim() && !filterCategory.trim() && sortKey === 'id_desc'
     if (serverPaged) return visibleRows
     const p = Math.min(dbPage, dbPageCount)
     const start = (p - 1) * dbPageSize
@@ -2036,7 +2049,11 @@ export function ServiceRequestsPage() {
                 setDbShowAll((v) => !v)
                 setDbPage(1)
               }}
-              className="rounded-full bg-[var(--color-surface)] px-3.5 py-1.5 text-xs font-semibold text-[var(--color-fg-muted)] ring-1 ring-slate-200 transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                dbShowAll
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-[var(--color-surface)] text-[var(--color-fg-muted)] ring-1 ring-slate-200 hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]'
+              }`}
               title={dbShowAll ? t('requests.database.showLatest200Title') : t('requests.database.showAllTitle')}
             >
               {dbShowAll ? t('requests.database.showLatest200') : t('requests.database.showAll')}
@@ -2089,27 +2106,32 @@ export function ServiceRequestsPage() {
                   <option value="closed_desc">{t('requests.database.sort.closedDesc')}</option>
                   <option value="priority_desc">{t('requests.database.sort.priorityDesc')}</option>
                 </select>
-                <select
-                  value={dbPageSize}
-                  onChange={(e) => {
-                    const next = Number(e.target.value) as (typeof DB_PAGE_SIZE_OPTIONS)[number]
-                    setDbPageSize(next)
-                    setDbPage(1)
-                    try {
-                      localStorage.setItem(DB_PAGE_SIZE_KEY, String(next))
-                    } catch {
-                      /* Ignore unavailable local storage. */
-                    }
-                  }}
-                  className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 text-sm font-semibold text-[var(--color-fg)] shadow-sm"
-                  aria-label={t('requests.database.pageSizeAria')}
-                >
-                  {DB_PAGE_SIZE_OPTIONS.map((size) => (
-                    <option key={size} value={size}>
-                      {t('requests.database.pageSize', { size })}
-                    </option>
-                  ))}
-                </select>
+                <label className="flex w-full flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-fg-subtle)]">
+                    {t('requests.database.pageSizeLabel')}
+                  </span>
+                  <select
+                    value={dbPageSize}
+                    onChange={(e) => {
+                      const next = Number(e.target.value) as (typeof DB_PAGE_SIZE_OPTIONS)[number]
+                      setDbPageSize(next)
+                      setDbPage(1)
+                      try {
+                        localStorage.setItem(DB_PAGE_SIZE_KEY, String(next))
+                      } catch {
+                        /* Ignore unavailable local storage. */
+                      }
+                    }}
+                    className="w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 text-sm font-semibold text-[var(--color-fg)] shadow-sm"
+                    aria-label={t('requests.database.pageSizeAria')}
+                  >
+                    {DB_PAGE_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={size}>
+                        {t('requests.database.pageSize', { size })}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   type="button"
                   disabled={pdfBusy}
@@ -2155,9 +2177,48 @@ export function ServiceRequestsPage() {
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-fg)]">
             {t('requests.database.list')}
             {!loading ? (
-              <span className="ml-2 font-normal text-[var(--color-fg-muted)]">· {visibleRows.length}{visibleRows.length !== total ? ` из ${total}` : ''}</span>
+              <span className="ml-2 font-normal text-[var(--color-fg-muted)]">
+                · {dbRowsToRender.length}
+                {dbListTotal !== dbRowsToRender.length ? ` / ${dbListTotal}` : ''}
+                {dbListTotal !== total ? ` ${t('requests.database.ofTotal', { total })}` : ''}
+              </span>
             ) : null}
           </h2>
+
+          {!loading && dbListTotal > dbPageSize ? (
+            <div className="mb-3 flex flex-col gap-2 text-sm text-[var(--color-fg-muted)] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <span>
+                {t('requests.database.pagination.shown', {
+                  shown: dbRowsToRender.length,
+                  total: dbListTotal,
+                })}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="min-h-11 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] transition hover:bg-[var(--color-surface-muted)] disabled:opacity-40 sm:min-h-0"
+                  onClick={() => setDbPage((p) => Math.max(1, p - 1))}
+                  disabled={dbPage <= 1}
+                >
+                  {t('requests.database.pagination.back')}
+                </button>
+                <span className="text-xs font-medium">
+                  {t('requests.database.pagination.page', {
+                    current: Math.min(dbPage, dbPageCount),
+                    total: dbPageCount,
+                  })}
+                </span>
+                <button
+                  type="button"
+                  className="min-h-11 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] transition hover:bg-[var(--color-surface-muted)] disabled:opacity-40 sm:min-h-0"
+                  onClick={() => setDbPage((p) => Math.min(dbPageCount, p + 1))}
+                  disabled={dbPage >= dbPageCount}
+                >
+                  {t('requests.database.pagination.next')}
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div>
             {reportOpen
@@ -2449,12 +2510,12 @@ export function ServiceRequestsPage() {
                 </div>
               </div>
             )}
-            {!loading && !dbShowAll && (query.trim() || filterCategory.trim() || sortKey !== 'id_desc' ? visibleRows.length : total) > dbPageSize ? (
+            {!loading && dbListTotal > dbPageSize ? (
               <div className="mt-3 flex flex-col gap-2 text-sm text-[var(--color-fg-muted)] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <span>
                   {t('requests.database.pagination.shown', {
                     shown: dbRowsToRender.length,
-                    total: query.trim() || filterCategory.trim() || sortKey !== 'id_desc' ? visibleRows.length : total,
+                    total: dbListTotal,
                   })}
                 </span>
                 <div className="flex items-center gap-2">

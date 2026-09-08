@@ -34,5 +34,5 @@ No build script can guarantee zero detections. For production distribution:
 - agent.cred                     DPAPI credential (created on first run)
 - SHA256SUMS.txt                 Integrity hash for the immutable EXE
 
-On first inventory run the agent writes a desktop shortcut "Заявка CORAX"
+After a successful inventory POST the agent writes a desktop shortcut "Заявка CORAX"
 that opens /h#pc=<this-PC-name>. Disable with "helpdesk_shortcut": false in agent.json.

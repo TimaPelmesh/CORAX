@@ -602,8 +602,6 @@ try {
         peripherals             = @($periph)
     }
 
-    try { Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $payload.hostname } catch { }
-
     $json = ($payload | ConvertTo-Json -Depth 8 -Compress)
     Set-BuddyProgress '[5/5] JSON ready...' 88
 
@@ -633,6 +631,7 @@ try {
             if ($r.ok) {
                 Clear-BuddyProgress
                 Log ("HTTP: OK " + $r.body)
+                try { Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $payload.hostname } catch { }
                 exit 0
             }
             if ($null -ne $r.code) {

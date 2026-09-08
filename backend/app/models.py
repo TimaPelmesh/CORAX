@@ -516,6 +516,27 @@ class Bitrix24Config(Base):
     )
 
 
+class ZabbixConfig(Base):
+    """Singleton read-only Zabbix API connection (scope A)."""
+
+    __tablename__ = "zabbix_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    base_url: Mapped[str] = mapped_column(String(512), default="")
+    api_token: Mapped[str] = mapped_column(String(512), default="")
+    verify_tls: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_test_message: Mapped[str] = mapped_column(String(512), default="")
+    last_version: Mapped[str] = mapped_column(String(64), default="")
+    last_hosts_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_problems_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class WakeOnLanConfig(Base):
     """Panel WoL: off by default; only allowlisted computer IDs can be woken."""
 
@@ -544,6 +565,10 @@ class Note(Base):
     owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     plan_start: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     plan_end: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    # Preset token for calendar day tint: blue|green|amber|rose|violet|slate
+    color: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Optional day mark under the date: dot|flag|star
+    mark: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

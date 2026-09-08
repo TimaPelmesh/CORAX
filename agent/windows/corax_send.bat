@@ -3,13 +3,17 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "ERR=0"
 
 REM CORAX Windows agent dispatcher (ASCII-only: Win7 cmd).
-REM Detects PowerShell 5+ vs older and runs win10\ or win7\ scripts.
-REM Keep agent_env.bat at THIS folder when updating scripts.
+REM Never call PATH powershell.exe: the WindowsApps stub opens a new
+REM minimized window and this console looks like it vanished.
 
 set "INV_SCRIPT_DIR=%~dp0"
 set "INV_SELF=%~f0"
 set "INV_MAP_DRIVE="
 set "INV_UNC_DIR="
+
+echo.
+echo   CORAX Agent
+echo.
 
 echo %INV_SCRIPT_DIR% | findstr /B "\\\\">NUL
 if "%ERRORLEVEL%"=="0" set "INV_UNC_DIR=%INV_SCRIPT_DIR%"
@@ -51,7 +55,6 @@ if defined INV_MAP_DRIVE (
 if /i "%~1"=="nopause" set "INV_NOPAUSE=1"
 
 title CORAX AGENT
-color 0A
 
 if not "%CORAX_AGENT_ALLOW_IN_SOURCE%"=="1" (
   if exist "%~dp0docker-compose.yml" goto :refuse_tree
@@ -91,21 +94,20 @@ if "%_PH%"=="1" (
   goto :done
 )
 
-set "PSMAJ=0"
-for /f %%P in ('powershell.exe -NoProfile -Command "Write-Output $PSVersionTable.PSVersion.Major" 2^>NUL') do set "PSMAJ=%%P"
-if not defined PSMAJ set "PSMAJ=0"
-
+REM PS 3+ (Win8/10/11, or Win7+WMF) has this key. Avoid spawning powershell.exe.
 set "CORAX_FLAVOR=win7"
-if %PSMAJ% GEQ 5 set "CORAX_FLAVOR=win10"
+reg query "HKLM\SOFTWARE\Microsoft\PowerShell\3" >NUL 2>&1
+if not errorlevel 1 set "CORAX_FLAVOR=win10"
+reg query "HKLM\SOFTWARE\Wow6432Node\Microsoft\PowerShell\3" >NUL 2>&1
+if not errorlevel 1 set "CORAX_FLAVOR=win10"
 
-echo.
-echo  // CORAX AGENT --------------------------------------------
-echo  // OS        Windows  PowerShell %PSMAJ%  -^> %CORAX_FLAVOR%
-echo  // TARGET    %INVENTORY_SERVER%
-echo  // START     %DATE% %TIME%
-echo  // -------------------------------------------------------
+echo   OS       Windows  -^> %CORAX_FLAVOR%
+echo   TARGET   %INVENTORY_SERVER%
+echo   START    %DATE% %TIME%
+echo   folder   %CD%
 echo.
 
+set "CORAX_INNER=1"
 if "%CORAX_FLAVOR%"=="win10" (
   if not exist "%~dp0win10\corax_send.bat" (
     echo [FAIL] win10\corax_send.bat not found

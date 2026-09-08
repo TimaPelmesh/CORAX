@@ -326,6 +326,19 @@ export function IconActivity({ className, title }: Props) {
   )
 }
 
+/** Monitoring / Zabbix — dashboard panel, not Wi‑Fi. */
+export function IconZabbix({ className, title }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden={!title} role="presentation">
+      {title ? <title>{title}</title> : null}
+      <rect x="3.25" y="4.25" width="17.5" height="13.5" rx="2.2" {...soft} />
+      <rect x="3.25" y="4.25" width="17.5" height="13.5" rx="2.2" {...s} />
+      <path d="M7 14.25V10.5M10.25 14.25V8.25M13.5 14.25v-4M16.75 14.25V9.1" {...s} />
+      <path d="M6.5 19.25h11" {...s} strokeWidth={sw * 0.9} />
+    </svg>
+  )
+}
+
 export function IconBook({ className, title }: Props) {
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden={!title} role="presentation">

@@ -10,6 +10,7 @@ import {
   IconPcs,
   IconPencil,
   IconPrinter,
+  IconZabbix,
   IconSoftware,
   IconTag,
   IconTicket,
@@ -31,11 +32,11 @@ export function prefsNavItems(user: { is_superuser?: boolean; role?: string } | 
     { path: '/requests/database', labelKey: 'nav.requestList' },
     { path: '/requests/templates', labelKey: 'nav.requestTemplates' },
     { path: '/requests/stats', labelKey: 'nav.requestStats' },
-    { path: '/requests/handler', labelKey: 'nav.requestHandler' },
     { path: '/knowledge-base/sitemap', labelKey: 'nav.sitemap' },
     { path: '/knowledge-base/guide', labelKey: 'nav.guide' },
     { path: '/knowledge-base/wikirag', labelKey: 'nav.wikirag' },
     { path: '/knowledge-base/notes', labelKey: 'nav.notes' },
+    { path: '/knowledge-base/zabbix', labelKey: 'nav.zabbixData' },
     { path: '/settings/llm', labelKey: 'nav.llm' },
   ]
   if (user?.is_superuser || user?.role === 'editor') {
@@ -49,6 +50,7 @@ export function prefsNavItems(user: { is_superuser?: boolean; role?: string } | 
       { path: '/users', labelKey: 'nav.users' },
       { path: '/settings/ldap', labelKey: 'nav.ldap' },
       { path: '/settings/bitrix24', labelKey: 'nav.bitrix24' },
+      { path: '/settings/zabbix', labelKey: 'nav.zabbix' },
       { path: '/settings/database', labelKey: 'nav.database' },
       { path: '/settings/glpi', labelKey: 'nav.glpi' },
       { path: '/settings/agent-tokens', labelKey: 'nav.agentTokens' },
@@ -132,13 +134,6 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
         },
         { to: '/requests/templates', end: true, icon: IconBook, labelKey: 'nav.requestTemplates' },
         { to: '/requests/stats', end: true, icon: IconDashboard, labelKey: 'nav.requestStats' },
-        {
-          to: '/requests/handler',
-          end: true,
-          icon: IconActivity,
-          labelKey: 'nav.requestHandler',
-          keywords: ['обработчик', 'handler', '/h', 'ярлык', 'intake'],
-        },
       ],
     },
     {
@@ -172,6 +167,12 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
           keywords: ['заметки', 'проекты', 'notes', 'plans', 'документы'],
           badgeKey: 'notes',
         },
+        {
+          to: '/knowledge-base/zabbix',
+          icon: IconZabbix,
+          labelKey: 'nav.zabbixData',
+          keywords: ['zabbix', 'мониторинг', 'алерты', 'problems', 'hosts'],
+        },
       ],
     },
   ]
@@ -194,6 +195,7 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
         { to: '/users', icon: IconUsers, labelKey: 'nav.users' },
         { to: '/settings/ldap', icon: IconLock, labelKey: 'nav.ldap' },
         { to: '/settings/bitrix24', icon: IconGraph, labelKey: 'nav.bitrix24' },
+        { to: '/settings/zabbix', icon: IconZabbix, labelKey: 'nav.zabbix' },
         {
           to: '/settings/database',
           icon: IconDisk,

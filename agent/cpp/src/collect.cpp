@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <exception>
 #include <functional>
 #include <regex>
 #include <set>
@@ -217,7 +218,72 @@ void collect_monitors_from_edid_registry(const std::function<void(const std::str
 
 }  // namespace
 
-std::string build_inventory_payload(const AgentConfig& cfg, const OsInfo& os) {
+std::string build_minimal_inventory_payload(const AgentConfig& cfg, const OsInfo& os,
+                                            const std::string& error) {
+  JsonWriter j;
+  j.begin_object();
+  std::string hostname = util::computer_hostname();
+  j.key("hostname");
+  j.value(hostname.empty() ? "unknown-host" : hostname);
+  j.key("serial_number");
+  j.null_value();
+  j.key("mac_primary");
+  j.null_value();
+  j.key("cpu");
+  j.null_value();
+  j.key("ram_gb");
+  j.value(0.0);
+  std::string os_name = os.product_name.empty() ? "Windows" : os.product_name;
+  std::string os_version = os.version + " build " + std::to_string(os.build);
+  put_str(j, "os_name", os_name);
+  put_str(j, "os_version", os_version);
+  j.key("manufacturer");
+  j.null_value();
+  j.key("model");
+  j.null_value();
+  j.key("gpu_name");
+  j.null_value();
+  j.key("memory_used_percent");
+  j.value(int64_t{0});
+  j.key("motherboard_manufacturer");
+  j.null_value();
+  j.key("motherboard_product");
+  j.null_value();
+  j.key("disks");
+  j.begin_array();
+  j.end_array();
+  j.key("software");
+  j.begin_array();
+  j.end_array();
+  j.key("peripherals");
+  j.begin_array();
+  j.end_array();
+  j.key("printers");
+  j.begin_array();
+  j.end_array();
+  j.key("extended");
+  j.begin_object();
+  j.key("agent_version");
+  j.value(cfg.agent_version);
+  j.key("agent_family");
+  j.value("cpp-v4");
+  j.key("profile");
+  j.value(cfg.profile);
+  j.key("collected_at");
+  j.value(util::iso8601_utc_now());
+  j.key("os_family");
+  j.value(os.family);
+  j.key("os_arch");
+  j.value(os.arch);
+  j.key("partial");
+  j.value(true);
+  put_str(j, "collect_error", error);
+  j.end_object();
+  j.end_object();
+  return j.str();
+}
+
+std::string build_inventory_payload_full(const AgentConfig& cfg, const OsInfo& os) {
   WmiSession wmi;
   JsonWriter j;
   j.begin_object();
@@ -843,7 +909,8 @@ std::string build_inventory_payload(const AgentConfig& cfg, const OsInfo& os) {
     j.begin_array();
     if (wmi.ok() && office_count > 0) {
       auto lics = wmi.query_cimv2(
-          L"SELECT Name,LicenseStatus,PartialProductKey FROM SoftwareLicensingProduct");
+          L"SELECT Name,LicenseStatus,PartialProductKey FROM SoftwareLicensingProduct "
+          L"WHERE PartialProductKey IS NOT NULL");
       int n = 0;
       for (auto& lic : lics) {
         if (n >= 8) break;
@@ -935,4 +1002,14 @@ std::string build_inventory_payload(const AgentConfig& cfg, const OsInfo& os) {
   j.end_object();  // extended
   j.end_object();  // root
   return j.str();
+}
+
+std::string build_inventory_payload(const AgentConfig& cfg, const OsInfo& os) {
+  try {
+    return build_inventory_payload_full(cfg, os);
+  } catch (const std::exception& ex) {
+    return build_minimal_inventory_payload(cfg, os, ex.what());
+  } catch (...) {
+    return build_minimal_inventory_payload(cfg, os, "unhandled collect error");
+  }
 }

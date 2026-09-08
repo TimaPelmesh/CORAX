@@ -2,8 +2,17 @@
 # Shared helpers for CORAX Agent
 
 function Log([string]$Msg) {
-    Write-Host ("[{0:HH:mm:ss}] " -f (Get-Date)) -NoNewline
-    Write-Host $Msg
+    $stamp = Get-Date -Format 'HH:mm:ss'
+    $line = "[$stamp] $Msg"
+    Write-Host $line
+    $targets = [System.Collections.Generic.List[string]]::new()
+    if ($env:TEMP) { [void]$targets.Add((Join-Path $env:TEMP 'corax-agent.log')) }
+    if ($global:CoraxAgentLogDir) {
+        [void]$targets.Add((Join-Path $global:CoraxAgentLogDir 'corax-agent.log'))
+    }
+    foreach ($p in ($targets | Select-Object -Unique)) {
+        try { Add-Content -LiteralPath $p -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+    }
 }
 
 function Set-AgentProgress {
@@ -30,7 +39,15 @@ function Invoke-WithTimeout {
         [scriptblock]$ScriptBlock,
         [int]$TimeoutSec = 12
     )
-    $job = Start-Job -ScriptBlock $ScriptBlock
+    # Start-Job is optional. On locked-down PCs it throws and used to abort
+    # the whole agent after the splash — skip the module instead.
+    $job = $null
+    try {
+        $job = Start-Job -ScriptBlock $ScriptBlock -ErrorAction Stop
+    } catch {
+        Log "WARN: Start-Job unavailable, skip timed collect: $($_.Exception.Message)"
+        return $null
+    }
     try {
         if (Wait-Job -Job $job -Timeout $TimeoutSec) {
             return Receive-Job -Job $job
