@@ -89,7 +89,7 @@ export function Layout() {
 
   const sidebarNav = (
     <>
-      <div className="relative flex h-14 shrink-0 items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 pr-14 lg:pr-3.5">
+      <div className="relative flex h-14 shrink-0 items-center justify-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 pr-14 lg:pr-3.5">
         <CoraxLogo variant="sidebar" alt="Corax" />
         <button
           type="button"

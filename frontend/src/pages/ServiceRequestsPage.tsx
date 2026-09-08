@@ -164,7 +164,6 @@ export function ServiceRequestsPage() {
   const [editingRequestId, setEditingRequestId] = useState<number | null>(null)
   const [editingReturnPath, setEditingReturnPath] = useState<string | null>(null)
   const [editingReturnPage, setEditingReturnPage] = useState<number | null>(null)
-  const [editDeleteConfirm, setEditDeleteConfirm] = useState(false)
   const [editDeleting, setEditDeleting] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('')
   const [reportOpen, setReportOpen] = useState(false)
@@ -657,7 +656,6 @@ export function ServiceRequestsPage() {
     setEditingRequestId(row.id)
     setEditingReturnPath(returnPath)
     setEditingReturnPage(returnPage)
-    setEditDeleteConfirm(false)
   }
 
   useEffect(() => {
@@ -839,7 +837,6 @@ export function ServiceRequestsPage() {
     setEditingRequestId(null)
     setEditingReturnPath(null)
     setEditingReturnPage(null)
-    setEditDeleteConfirm(false)
   }
 
   function populateFormFromRequest(t: ServiceRequestRow) {
@@ -1592,35 +1589,14 @@ export function ServiceRequestsPage() {
                       </button>
                     ) : null}
                     {editingRequestId != null && canManageRequests ? (
-                      editDeleteConfirm ? (
-                        <>
-                          <button
-                            type="button"
-                            disabled={editDeleting}
-                            onClick={() => void removeEditingRequest()}
-                            className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-50 dark:bg-red-500/15 dark:text-red-200"
-                          >
-                            {editDeleting ? t('requests.create.deleting') : t('requests.create.deleteYes')}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={editDeleting}
-                            onClick={() => setEditDeleteConfirm(false)}
-                            className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium hover:bg-[var(--color-bg-muted)] disabled:opacity-50"
-                          >
-                            {t('requests.create.cancel')}
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={saving || editDeleting}
-                          onClick={() => setEditDeleteConfirm(true)}
-                          className="rounded-lg border border-red-300/80 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-500/10"
-                        >
-                          {t('requests.create.deleteRequest')}
-                        </button>
-                      )
+                      <button
+                        type="button"
+                        disabled={saving || editDeleting}
+                        onClick={() => void removeEditingRequest()}
+                        className="rounded-lg border border-red-300/80 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-500/10"
+                      >
+                        {editDeleting ? t('requests.create.deleting') : t('requests.create.deleteRequest')}
+                      </button>
                     ) : null}
                     {editingRequestId != null && canManageRequests && isCloseableStatus(createStatus) ? (
                       <button
@@ -1659,12 +1635,6 @@ export function ServiceRequestsPage() {
                     <span className="rounded-lg bg-sky-500/10 px-3 py-1.5 text-sky-900 dark:text-sky-200">
                       {t('requests.create.active')}: <strong>{summary.service_requests_active}</strong>
                     </span>
-                  </div>
-                ) : null}
-
-                {editDeleteConfirm && editingRequestId != null ? (
-                  <div className="rounded-xl border border-red-300/50 bg-red-50/80 px-4 py-3 text-sm text-red-950 dark:bg-red-500/10 dark:text-red-100">
-                    {t('requests.create.deleteConfirm', { title })}
                   </div>
                 ) : null}
 
@@ -3005,8 +2975,8 @@ export function ServiceRequestsPage() {
           <div className="min-w-0 lg:col-span-12">
 
             <div className="grid gap-6 lg:grid-cols-12">
-              <div className="lg:col-span-4">
-                <div className="app-card rounded-2xl border-[var(--color-border)] p-3 sm:p-4">
+              <div className="lg:col-span-5">
+                <div className="app-card flex min-h-0 flex-col rounded-2xl border-[var(--color-border)] p-4 sm:p-5 lg:min-h-[calc(100dvh-10rem)]">
                   <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] pb-2">
                     <span className="h-6 w-1 rounded-full bg-blue-600/90" aria-hidden />
                     <h2 className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-tight text-[var(--color-fg)]">
@@ -3031,15 +3001,15 @@ export function ServiceRequestsPage() {
                     />
                   </label>
 
-                  <label className="mb-2 block">
+                  <label className="mb-3 flex min-h-[10rem] flex-1 flex-col">
                     <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-fg-muted)]">
                       {t('requests.templates.description')}
                     </span>
                     <textarea
                       value={tplDescription}
                       onChange={(e) => setTplDescription(e.target.value)}
-                      rows={2}
-                      className="w-full resize-y rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)]"
+                      rows={8}
+                      className="min-h-[10rem] w-full flex-1 resize-y rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2 text-sm text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)]"
                     />
                   </label>
 
@@ -3199,7 +3169,7 @@ export function ServiceRequestsPage() {
                     />
                   </div>
 
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="mt-auto flex flex-col gap-2 pt-4 sm:flex-row">
                     {tplEditingId != null ? (
                       <button
                         type="button"
@@ -3226,7 +3196,7 @@ export function ServiceRequestsPage() {
                 </div>
               </div>
 
-              <div className="lg:col-span-8">
+              <div className="lg:col-span-7">
                 <div className="mb-3 flex items-end justify-between gap-3">
                   <h2 className="text-sm font-semibold text-[var(--color-fg)]">
                     {t('requests.templates.title')}

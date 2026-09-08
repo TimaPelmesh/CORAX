@@ -19,8 +19,8 @@ type SearchHit =
   | { kind: 'request'; id: number; title: string; subtitle: string; to: string; row: ServiceRequestRow }
 
 function chromeBtnClass(active = false) {
-  return `chrome-glass-btn relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-[var(--color-fg-muted)] transition hover:bg-[color-mix(in_srgb,var(--color-surface)_94%,transparent)] hover:text-[var(--color-fg)] ${
-    active ? 'bg-[color-mix(in_srgb,var(--color-surface)_96%,transparent)] text-[var(--color-fg)]' : ''
+  return `chrome-glass-btn relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)] ${
+    active ? 'bg-[var(--color-surface)] text-[var(--color-fg)]' : ''
   }`
 }
 
@@ -396,7 +396,7 @@ export function AppTopBar() {
           ) : null}
         </button>
         {notifyOpen ? (
-          <div className="absolute right-0 top-[calc(100%+0.4rem)] z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl chrome-glass-card">
+          <div className="chrome-notify-card absolute right-0 top-[calc(100%+0.4rem)] z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl">
             <div className="border-b border-[var(--color-border)] px-3.5 py-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-[13px] font-semibold text-[var(--color-fg)]">{t('chrome.notifications')}</div>

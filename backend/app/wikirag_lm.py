@@ -273,6 +273,16 @@ def normalize_lm_base_url(raw: str | None) -> str:
     return base.rstrip("/")
 
 
+def rewrite_lm_base_url_for_runtime(base: str) -> str:
+    """When CORAX runs in Docker, browser localhost is the host — not the container."""
+    if not settings.corax_docker:
+        return base
+    match = re.match(r"^https?://(127\.0\.0\.1|localhost):(\d+)/v1$", base, re.IGNORECASE)
+    if not match:
+        return base
+    return f"http://host.docker.internal:{match.group(2)}/v1"
+
+
 def detect_llm_provider(base_url: str | None) -> str:
     """Heuristic: Ollama (11434) vs LM Studio (1234) vs generic OpenAI-compatible."""
     raw = (base_url or "").strip().lower()
@@ -292,7 +302,7 @@ def llm_provider_label(provider: str) -> str:
 
 
 def _base_url(override: str | None = None) -> str:
-    return normalize_lm_base_url(override)
+    return rewrite_lm_base_url_for_runtime(normalize_lm_base_url(override))
 
 
 def _lm_client(*, read: float) -> httpx.AsyncClient:
@@ -834,9 +844,21 @@ async def lm_studio_chat(
                     else "Увеличьте Server Timeout в LM Studio."
                 )
                 raise RuntimeError(f"{label} не ответил за {int(read_timeout)} с. {hint}") from e
+            except httpx.ConnectError as e:
+                hint = (
+                    "Запустите Ollama (`ollama serve`) и проверьте URL."
+                    if provider == "ollama"
+                    else "Проверьте, что Local Server запущен."
+                )
+                raise RuntimeError(f"Нет соединения с {label} ({base}). {hint}") from e
+            except httpx.HTTPError as e:
+                raise RuntimeError(f"Нет связи с {label} ({base}): {e}") from e
 
             if res.status_code == 200:
-                data = res.json()
+                try:
+                    data = res.json()
+                except Exception as e:
+                    raise RuntimeError(f"{label} вернул не JSON") from e
                 choices = data.get("choices") or []
                 if not choices:
                     raise RuntimeError(f"{label} вернул пустой ответ")

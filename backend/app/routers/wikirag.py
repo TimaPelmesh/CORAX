@@ -97,6 +97,7 @@ from app.wikirag_lm import (
     is_small_talk,
     llm_provider_label,
     normalize_lm_base_url,
+    rewrite_lm_base_url_for_runtime,
     sanitize_chat_history,
     lm_studio_chat,
     lm_studio_chat_stream,
@@ -847,12 +848,7 @@ def _resolve_lm_base_url(raw: str | None) -> str | None:
     if raw is None or not str(raw).strip():
         return None
     try:
-        base = normalize_lm_base_url(raw)
-        # Настройка хранится в браузере, но запрос выполняет контейнер. Поэтому
-        # localhost клиента нельзя использовать как localhost Docker-контейнера.
-        if settings.corax_docker and re.match(r"^https?://(127\.0\.0\.1|localhost):11434/v1$", base):
-            return "http://host.docker.internal:11434/v1"
-        return base
+        return rewrite_lm_base_url_for_runtime(normalize_lm_base_url(raw))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

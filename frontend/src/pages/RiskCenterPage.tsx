@@ -9,7 +9,8 @@ import {
 } from '../api'
 import { useAuth } from '../AuthContext'
 import { ComputerDetailModal } from '../components/ComputerDetailModal'
-import { IconActivity, IconCheckBadge, IconLock } from '../components/icons'
+import { MiniStatCard } from '../components/dashboard/DashboardWidgets'
+import { IconActivity, IconCheckBadge, IconLock, IconPcs, IconSignal } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
 import { useLocale } from '../i18n/LocaleContext'
 import { loadWikiRagLmSettings } from '../lib/wikiragLmSettings'
@@ -152,19 +153,76 @@ function RiskSkeleton({ text }: { text: string }) {
   )
 }
 
+function HealthRing({ score }: { score: number }) {
+  const clamped = Math.min(100, Math.max(0, score))
+  const radius = 46
+  const circ = 2 * Math.PI * radius
+  const offset = circ * (1 - clamped / 100)
+  return (
+    <svg viewBox="0 0 120 120" className="h-[7.25rem] w-[7.25rem]" aria-hidden>
+      <circle
+        cx="60"
+        cy="60"
+        r={radius}
+        fill="none"
+        strokeWidth="10"
+        className="stroke-[var(--color-surface-muted)]"
+      />
+      <circle
+        cx="60"
+        cy="60"
+        r={radius}
+        fill="none"
+        strokeWidth="10"
+        strokeLinecap="round"
+        strokeDasharray={circ}
+        strokeDashoffset={offset}
+        transform="rotate(-90 60 60)"
+        className="stroke-blue-600 dark:stroke-blue-400"
+      />
+      <text
+        x="60"
+        y="58"
+        textAnchor="middle"
+        fontSize="28"
+        fontWeight="600"
+        className="fill-[var(--color-fg)]"
+      >
+        {clamped}
+      </text>
+      <text x="60" y="78" textAnchor="middle" fontSize="11" className="fill-[var(--color-fg-subtle)]">
+        / 100
+      </text>
+    </svg>
+  )
+}
+
 function HistoryChart({ items, label }: { items: RiskHistoryPoint[]; label: string }) {
   if (items.length === 0) return null
+  const width = 720
+  const height = 128
+  const padX = 8
+  const padY = 10
+  const maxScore = 100
+  const xs = items.map((_, index) =>
+    items.length === 1 ? width / 2 : padX + (index / (items.length - 1)) * (width - padX * 2),
+  )
+  const ys = items.map(
+    (point) => height - padY - (Math.min(maxScore, Math.max(0, point.fleet_health_score)) / maxScore) * (height - padY * 2),
+  )
+  const line = xs.map((x, index) => `${x.toFixed(1)},${ys[index].toFixed(1)}`).join(' ')
+  const area = `${padX},${height - padY} ${line} ${width - padX},${height - padY}`
   return (
-    <div className="flex h-16 items-end gap-0.5" aria-label={label}>
-      {items.map((point) => (
-        <div
-          key={point.created_at}
-          className="min-w-0 flex-1 rounded-sm bg-blue-600/75 dark:bg-blue-400/70"
-          style={{ height: `${Math.max(8, point.fleet_health_score)}%` }}
-          title={`${new Date(point.created_at).toLocaleString()} · ${point.fleet_health_score}`}
-        />
-      ))}
-    </div>
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-32 w-full" aria-label={label} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="risk-health-fill" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="rgb(37 99 235)" stopOpacity="0.28" />
+          <stop offset="100%" stopColor="rgb(37 99 235)" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill="url(#risk-health-fill)" />
+      <polyline points={line} fill="none" stroke="rgb(37 99 235)" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   )
 }
 
@@ -289,51 +347,70 @@ export function RiskCenterPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-5 sm:px-6">
-      <PageHeader
-        icon={<IconLock className="h-7 w-7" />}
-        title={c.title}
-        subtitle={c.subtitle}
-        actions={
-          <div className="text-right text-xs text-[var(--color-fg-muted)]">
-            <div>{c.updated}</div>
-            <div className="mt-0.5 font-mono">{new Date(overview.generated_at).toLocaleString()}</div>
+      <PageHeader icon={<IconLock className="h-7 w-7" />} title={c.title} subtitle={c.subtitle} />
+
+      <section className="risk-card-enter grid gap-3 xl:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]">
+        <div className="app-panel flex items-center gap-4 !rounded-2xl !p-5">
+          <HealthRing score={overview.fleet_health_score} />
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-fg-subtle)]">
+              {c.health}
+            </div>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--color-fg-muted)]">{c.healthHint}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              {healthDelta != null ? (
+                <span className="rounded-full bg-blue-600/10 px-2 py-0.5 font-semibold text-blue-800 dark:text-blue-200">
+                  {healthDelta > 0 ? `+${healthDelta}` : healthDelta}
+                </span>
+              ) : null}
+              <span className="text-[var(--color-fg-subtle)]">
+                {c.updated} · {new Date(overview.generated_at).toLocaleString()}
+              </span>
+            </div>
           </div>
-        }
-      />
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <MiniStatCard
+            label={c.total}
+            value={overview.computers_total}
+            sub={c.openFleet}
+            icon={<IconPcs className="h-4 w-4" />}
+            to="/computers"
+          />
+          <MiniStatCard
+            label={c.problems}
+            value={statusCounts.open}
+            sub={`${c.critical}: ${overview.computers_critical}`}
+            icon={<IconActivity className="h-4 w-4" />}
+          />
+          <MiniStatCard
+            label={c.antivirus}
+            value={`${antivirusPercent}%`}
+            sub={`${overview.antivirus_protected}/${overview.computers_total}`}
+            icon={<IconCheckBadge className="h-4 w-4" />}
+          />
+          <MiniStatCard
+            label={c.antivirusAttention}
+            value={overview.antivirus_attention}
+            sub={`${c.antivirusUnknown}: ${overview.antivirus_unknown}`}
+            icon={<IconSignal className="h-4 w-4" />}
+          />
+          <MiniStatCard
+            label={c.critical}
+            value={overview.computers_critical}
+            sub={`${c.high}: ${overview.computers_high}`}
+            icon={<IconLock className="h-4 w-4" />}
+          />
+          <MiniStatCard
+            label={c.healthy}
+            value={overview.computers_healthy}
+            sub={`${c.medium}: ${overview.computers_medium}`}
+            icon={<IconCheckBadge className="h-4 w-4" />}
+          />
+        </div>
+      </section>
 
-      <div className="flex flex-wrap gap-3 text-sm">
-        <span className="rounded-lg bg-blue-600/10 px-3 py-1.5 text-blue-800 dark:text-blue-200">
-          {c.health}: <strong>{overview.fleet_health_score}/100</strong>
-          {healthDelta != null ? (
-            <span className="ml-1 font-medium text-blue-700 dark:text-blue-300">
-              {healthDelta > 0 ? `+${healthDelta}` : healthDelta}
-            </span>
-          ) : null}
-        </span>
-        <span className="rounded-lg bg-[var(--color-bg-muted)] px-3 py-1.5">
-          {c.total}: <strong>{overview.computers_total}</strong>
-        </span>
-        <span className="rounded-lg bg-blue-600/10 px-3 py-1.5 text-blue-800 dark:text-blue-200">
-          {c.problems}: <strong>{statusCounts.open}</strong>
-        </span>
-        <span className="rounded-lg bg-blue-500/10 px-3 py-1.5 text-blue-700 dark:text-blue-200">
-          {c.critical}: <strong>{overview.computers_critical}</strong>
-        </span>
-        <span className="rounded-lg bg-blue-400/10 px-3 py-1.5 text-blue-700 dark:text-blue-300">
-          {c.antivirus}:{' '}
-          <strong>
-            {overview.antivirus_protected}/{overview.computers_total} · {antivirusPercent}%
-          </strong>
-        </span>
-        <span className="rounded-lg bg-blue-300/10 px-3 py-1.5 text-blue-700 dark:text-blue-300">
-          {c.antivirusAttention}: <strong>{overview.antivirus_attention}</strong>
-        </span>
-        <span className="rounded-lg bg-[var(--color-bg-muted)] px-3 py-1.5">
-          {c.antivirusUnknown}: <strong>{overview.antivirus_unknown}</strong>
-        </span>
-      </div>
-
-      <section className="risk-card-enter rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+      <section className="risk-card-enter app-panel !rounded-2xl !p-5">
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="font-semibold text-[var(--color-fg)]">{c.history}</h2>
@@ -354,8 +431,8 @@ export function RiskCenterPage() {
         )}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
-        <div className="risk-card-enter rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
+        <div className="risk-card-enter app-panel !rounded-2xl !p-5">
           <div className="mb-4 flex items-center gap-2">
             <IconActivity className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             <h2 className="font-semibold text-[var(--color-fg)]">{c.categories}</h2>
@@ -365,11 +442,11 @@ export function RiskCenterPage() {
               <div key={category.id}>
                 <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium text-[var(--color-fg)]">{category.label}</span>
-                  <span className="text-xs text-[var(--color-fg-muted)]">
+                  <span className="text-xs tabular-nums text-[var(--color-fg-muted)]">
                     {category.affected_computers} {c.affected}
                   </span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-muted)]">
+                <div className="h-2.5 overflow-hidden rounded-full bg-[var(--color-surface-muted)]">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-blue-600 to-sky-400 transition-[width] duration-700 ease-out"
                     style={{ width: `${Math.max(4, (category.risk_points / maxCategoryPoints) * 100)}%` }}
@@ -380,46 +457,43 @@ export function RiskCenterPage() {
           </div>
         </div>
 
-        <div className="risk-card-enter relative overflow-hidden rounded-xl border border-blue-200/70 bg-gradient-to-br from-blue-50 via-white to-blue-50 p-5 dark:border-blue-500/25 dark:from-blue-500/10 dark:via-[var(--color-surface)] dark:to-blue-500/10">
-          <div className="absolute -right-12 -top-12 h-36 w-36 rounded-full bg-blue-400/10 blur-2xl" />
-          <div className="relative">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <IconCheckBadge className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                  <h2 className="font-semibold text-[var(--color-fg)]">{c.aiTitle}</h2>
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-[var(--color-fg-muted)]">
-                  {c.aiHint} {!canRunAi ? c.aiPermission : ''}
-                </p>
+        <div className="risk-card-enter app-panel !rounded-2xl !p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <IconCheckBadge className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <h2 className="font-semibold text-[var(--color-fg)]">{c.aiTitle}</h2>
               </div>
-              <button
-                type="button"
-                className="app-btn app-btn-primary shrink-0"
-                disabled={aiBusy || !canRunAi}
-                onClick={() => void runAi(Boolean(aiInsight))}
-              >
-                {aiBusy ? c.aiBusy : aiInsight ? c.aiRefresh : c.aiRun}
-              </button>
+              <p className="mt-2 text-xs leading-relaxed text-[var(--color-fg-muted)]">
+                {c.aiHint} {!canRunAi ? c.aiPermission : ''}
+              </p>
             </div>
-            <div className="mt-4 min-h-32 rounded-xl border border-blue-100 bg-white/80 p-4 text-sm leading-6 text-slate-700 dark:border-blue-500/20 dark:bg-black/10 dark:text-[var(--color-fg)]">
-              {aiInsight ? (
-                <div className="whitespace-pre-wrap">{aiInsight.text}</div>
-              ) : (
-                <div className="flex min-h-24 items-center text-[var(--color-fg-muted)]">{c.aiEmpty}</div>
-              )}
-              {aiInsight?.model ? (
-                <div className="mt-3 border-t border-[var(--color-border)] pt-2 text-[10px] text-[var(--color-fg-subtle)]">
-                  {aiInsight.model}
-                  {aiInsight.cached ? ' · cache' : ''}
-                </div>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              className="app-btn app-btn-primary shrink-0 !min-h-[2.5rem] !px-3 !text-sm"
+              disabled={aiBusy || !canRunAi}
+              onClick={() => void runAi(Boolean(aiInsight))}
+            >
+              {aiBusy ? c.aiBusy : aiInsight ? c.aiRefresh : c.aiRun}
+            </button>
+          </div>
+          <div className="mt-4 min-h-36 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-4 text-sm leading-6 text-[var(--color-fg)]">
+            {aiInsight ? (
+              <div className="whitespace-pre-wrap">{aiInsight.text}</div>
+            ) : (
+              <div className="flex min-h-24 items-center text-[var(--color-fg-muted)]">{c.aiEmpty}</div>
+            )}
+            {aiInsight?.model ? (
+              <div className="mt-3 border-t border-[var(--color-border)] pt-2 text-[10px] text-[var(--color-fg-subtle)]">
+                {aiInsight.model}
+                {aiInsight.cached ? ' · cache' : ''}
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
 
-      <section className="risk-card-enter overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <section className="risk-card-enter overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className="flex flex-col gap-3 border-b border-[var(--color-border)] p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="font-semibold text-[var(--color-fg)]">{c.problems}</h2>
@@ -479,7 +553,7 @@ export function RiskCenterPage() {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <button
                     type="button"
-                    className="min-w-0 flex-1 text-left"
+                    className="min-w-0 flex-1 rounded-xl px-1 text-left transition hover:bg-[var(--color-surface-muted)]/70"
                     onClick={() => setExpandedRule(expanded ? null : group.rule)}
                   >
                     <div className="flex flex-wrap items-center gap-2">

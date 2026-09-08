@@ -12,6 +12,7 @@ from app.wikirag_lm import (
     is_bad_lm_answer,
     llm_provider_label,
     normalize_lm_base_url,
+    rewrite_lm_base_url_for_runtime,
 )
 
 
@@ -128,3 +129,14 @@ def test_detect_llm_provider():
 def test_normalize_ollama_base_url_appends_v1():
     assert normalize_lm_base_url("http://127.0.0.1:11434") == "http://127.0.0.1:11434/v1"
     assert normalize_lm_base_url("http://127.0.0.1:11434/v1/") == "http://127.0.0.1:11434/v1"
+
+
+def test_rewrite_localhost_for_docker(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "corax_docker", False)
+    assert rewrite_lm_base_url_for_runtime("http://127.0.0.1:11434/v1") == "http://127.0.0.1:11434/v1"
+    monkeypatch.setattr(settings, "corax_docker", True)
+    assert rewrite_lm_base_url_for_runtime("http://127.0.0.1:11434/v1") == "http://host.docker.internal:11434/v1"
+    assert rewrite_lm_base_url_for_runtime("http://localhost:1234/v1") == "http://host.docker.internal:1234/v1"
+    assert rewrite_lm_base_url_for_runtime("http://192.168.1.10:11434/v1") == "http://192.168.1.10:11434/v1"

@@ -302,10 +302,19 @@ export function NotesPage() {
       <h1 className="sr-only">{t('notes.title')}</h1>
       <div className="grid gap-4 lg:grid-cols-[minmax(14rem,18rem)_1fr]">
         <aside className="app-panel !p-3">
+          <DashboardCalendar
+            compact
+            embedded
+            plansOnly
+            hideNotesLink
+            selectedNoteId={selectedId}
+            refreshKey={calendarTick}
+            onSelectPlan={(id) => setSearchParams({ id: String(id) })}
+          />
           <button
             type="button"
             onClick={() => void createNote()}
-            className="mb-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            className="my-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
           >
             <span className="text-lg leading-none" aria-hidden>
               +
@@ -359,16 +368,6 @@ export function NotesPage() {
               })}
             </ul>
           )}
-          <div className="mt-3">
-            <DashboardCalendar
-              compact
-              plansOnly
-              hideNotesLink
-              selectedNoteId={selectedId}
-              refreshKey={calendarTick}
-              onSelectPlan={(id) => setSearchParams({ id: String(id) })}
-            />
-          </div>
         </aside>
 
         <section className="app-panel !p-0 overflow-hidden">

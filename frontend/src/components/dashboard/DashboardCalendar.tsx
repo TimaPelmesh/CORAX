@@ -78,6 +78,7 @@ function planBadgeClass(item: DashboardCalendarItem): string {
 
 export function DashboardCalendar({
   compact = false,
+  embedded = false,
   plansOnly = false,
   hideNotesLink = false,
   selectedNoteId = null,
@@ -85,6 +86,8 @@ export function DashboardCalendar({
   onSelectPlan,
 }: {
   compact?: boolean
+  /** Nested in another panel: no extra card chrome. */
+  embedded?: boolean
   /** Notes planner: hide ticket deadlines. */
   plansOnly?: boolean
   hideNotesLink?: boolean
@@ -155,7 +158,11 @@ export function DashboardCalendar({
 
   return (
     <section
-      className={`app-panel min-w-0 !rounded-xl ${compact ? '!p-2.5' : '!p-3.5 sm:!p-4'}`}
+      className={
+        embedded
+          ? 'min-w-0'
+          : `app-panel min-w-0 !rounded-xl ${compact ? '!p-2.5' : '!p-3.5 sm:!p-4'}`
+      }
       aria-label={compact ? t('dashboard.calendar.title') : undefined}
       aria-labelledby={compact ? undefined : 'dashboard-calendar-title'}
     >

@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_editor_or_superuser, get_current_user
-from app.config import settings
 from app.database import get_db
 from app.models import Computer, RiskFindingAck, RiskSnapshot, User
 from app.rate_limit import limiter
@@ -26,7 +25,13 @@ from app.risk_schemas import (
     RiskHistoryPoint,
     RiskOverview,
 )
-from app.wikirag_lm import is_bad_lm_answer, lm_studio_chat, normalize_lm_base_url
+from app.wikirag_lm import (
+    ensure_model_num_ctx,
+    is_bad_lm_answer,
+    lm_studio_chat,
+    normalize_lm_base_url,
+    _sanitize_model_output,
+)
 
 
 router = APIRouter(prefix="/risks", tags=["risks"])
@@ -207,10 +212,7 @@ async def risk_ai_insights(
     )
     try:
         base_url = normalize_lm_base_url(body.base_url)
-        if settings.corax_docker and re.match(
-            r"^https?://(127\.0\.0\.1|localhost):11434/v1$", base_url
-        ):
-            base_url = "http://host.docker.internal:11434/v1"
+        await ensure_model_num_ctx(base_url=base_url, model=body.model)
         text, used_model = await lm_studio_chat(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             base_url=base_url,
@@ -222,6 +224,12 @@ async def risk_ai_insights(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc) or "Локальная модель недоступна. Проверьте настройки LLM.",
+        ) from exc
+    text = _sanitize_model_output(text) or (text or "").strip()
     if is_bad_lm_answer(text):
         raise HTTPException(
             status_code=502,
