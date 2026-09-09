@@ -54,18 +54,13 @@ title INVENTORY AGENT :: WIN7 UPLINK
 set "CORAX_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if not exist "%CORAX_PS%" set "CORAX_PS=%SystemRoot%\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
 
-if not defined INV_NOPAUSE if exist "%~dp0inventory_splash_win7.ps1" (
-  "%CORAX_PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0inventory_splash_win7.ps1"
-)
-
 set "LOG_FILE=%TEMP%\inventory_agent_win7.log"
 
 REM Optional local config (panel ZIP: this folder or parent folder)
-if exist "%~dp0agent_env.bat" (
-  call "%~dp0agent_env.bat"
-) else if exist "%~dp0..\agent_env.bat" (
-  call "%~dp0..\agent_env.bat"
-)
+set "CORAX_ENV="
+if exist "%~dp0agent_env.bat" set "CORAX_ENV=%~dp0agent_env.bat"
+if not defined CORAX_ENV if exist "%~dp0..\agent_env.bat" set "CORAX_ENV=%~dp0..\agent_env.bat"
+if defined CORAX_ENV call "%CORAX_ENV%"
 
 REM Convenience for labs / network share deployment:
 REM - If 1st arg looks like http(s)://... use it as INVENTORY_SERVER

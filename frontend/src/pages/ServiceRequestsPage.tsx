@@ -6,12 +6,14 @@ import {
   type Computer,
   type DashboardSummary,
   type RequestCategoryTreeNode,
+  type RiskAiInsight,
   type ServiceRequestRow,
   type ServiceRequestTemplateRow,
   type UserDirectoryItem,
 } from '../api'
 import { useAuth } from '../AuthContext'
-import { IconCheckBadge, IconPencil, IconTrash } from '../components/icons'
+import { IconAssistant, IconCheckBadge, IconPencil, IconTrash } from '../components/icons'
+import { loadWikiRagLmSettings } from '../lib/wikiragLmSettings'
 import { collectCategoryPaths } from '../requestCategories'
 import { useLocale, useT } from '../i18n/LocaleContext'
 import { useToast } from '../ToastContext'
@@ -102,9 +104,9 @@ export function ServiceRequestsPage() {
   const [filterStatus, setFilterStatus] = useState<string | null>(null)
   const [pdfBusy, setPdfBusy] = useState(false)
   const [alignDatesBusy, setAlignDatesBusy] = useState(false)
-  const [dbShowAll, setDbShowAll] = useState(false)
   const [dbPage, setDbPage] = useState(1)
   const [dbPageSize, setDbPageSize] = useState(readDatabasePageSize)
+  const showAllRows = dbPageSize <= 0
 
   const [pcList, setPcList] = useState<Computer[]>([])
   const [categoryTree, setCategoryTree] = useState<RequestCategoryTreeNode[]>([])
@@ -185,6 +187,8 @@ export function ServiceRequestsPage() {
   const [statsTopN, setStatsTopN] = useState(8)
   const [statsOnlyWithPlanned, setStatsOnlyWithPlanned] = useState(false)
   const [statsOnlyOverdue, setStatsOnlyOverdue] = useState(false)
+  const [statsAi, setStatsAi] = useState<RiskAiInsight | null>(null)
+  const [statsAiBusy, setStatsAiBusy] = useState(false)
   const [execReportTitle, setExecReportTitle] = useState(t('requests.reportDefaults.title'))
   const [execReportAudience, setExecReportAudience] = useState(t('requests.reportDefaults.audience'))
   const [execReportAuthor, setExecReportAuthor] = useState('')
@@ -426,7 +430,29 @@ export function ServiceRequestsPage() {
       return Boolean(p && c && c.getTime() <= p.getTime())
     }).length
     const slaHitRate = closedWithPlan.length ? Math.round((inSla / closedWithPlan.length) * 100) : 0
-    return { total, done, cancelled, active, overdue, completionRate, overdueRate, avgCloseHours, slaHitRate }
+    const sortedDur = [...closedDurations].sort((a, b) => a - b)
+    const medianCloseHours = sortedDur.length
+      ? Math.round(sortedDur[Math.floor(sortedDur.length / 2)] * 10) / 10
+      : null
+    const highN = statsRows.filter((r) => r.priority === 'high').length
+    const highShare = total > 0 ? Math.round((highN / total) * 100) : 0
+    const openN = statsRows.filter((r) => r.status === 'open').length
+    const progressN = statsRows.filter((r) => r.status === 'in_progress').length
+    return {
+      total,
+      done,
+      cancelled,
+      active,
+      overdue,
+      completionRate,
+      overdueRate,
+      avgCloseHours,
+      slaHitRate,
+      medianCloseHours,
+      highShare,
+      openN,
+      progressN,
+    }
   }, [statsRows])
 
   const statsPeriodLabel = useMemo(() => {
@@ -434,6 +460,83 @@ export function ServiceRequestsPage() {
     const to = statsTo.trim() || t('requests.statsData.today')
     return `${from} - ${to}`
   }, [statsFrom, statsTo, t])
+
+  const statsExtra = useMemo(() => {
+    const from = statsFrom ? Date.parse(statsFrom) : NaN
+    const to = statsTo ? Date.parse(statsTo) : Date.now()
+    const daySpan = Number.isFinite(from) ? Math.max(1, Math.round((to - from) / 86_400_000) + 1) : 30
+    const perDay = Math.round((statsKpi.total / daySpan) * 10) / 10
+    const cats = [...statsCategoryItems].sort((a, b) => b.count - a.count)
+    const topCat = cats[0] ?? null
+    const topAsg = statsAssigneeItems[0] ?? null
+    const topShare = topAsg && statsKpi.total > 0 ? Math.round((topAsg.count / statsKpi.total) * 100) : 0
+    const bullets: string[] = []
+    const trendItems = statsSeries.items
+    if (trendItems.length >= 6) {
+      const last = trendItems.slice(-3).reduce((sum, item) => sum + item.total, 0)
+      const prev = trendItems.slice(-6, -3).reduce((sum, item) => sum + item.total, 0)
+      if (prev > 0 && last >= prev * 1.25) bullets.push(t('requests.stats.insightTrendUp'))
+      else if (prev > 0 && last <= prev * 0.75) bullets.push(t('requests.stats.insightTrendDown'))
+    }
+    if (statsKpi.total > 0) {
+      if (statsKpi.overdueRate >= 10) {
+        bullets.push(t('requests.stats.insightOverdue', { n: statsKpi.overdue, pct: statsKpi.overdueRate }))
+      }
+      if (statsKpi.slaHitRate > 0) {
+        bullets.push(t('requests.stats.insightSla', { pct: statsKpi.slaHitRate }))
+      }
+      if (topAsg && topShare >= 30) {
+        bullets.push(t('requests.stats.insightLoad', { name: topAsg.name, pct: topShare }))
+      }
+      if (statsKpi.highShare >= 20) {
+        bullets.push(t('requests.stats.insightHigh', { pct: statsKpi.highShare }))
+      }
+      bullets.push(t('requests.stats.insightDone', { pct: statsKpi.completionRate, n: statsKpi.done }))
+    }
+    return { perDay, daySpan, topCat, topAsg, topShare, bullets: bullets.slice(0, 6) }
+  }, [statsAssigneeItems, statsCategoryItems, statsFrom, statsKpi, statsSeries.items, statsTo, t])
+
+  async function runStatsAi(force: boolean) {
+    setStatsAiBusy(true)
+    try {
+      const settings = loadWikiRagLmSettings()
+      const result = await api.serviceRequestAiInsights({
+        base_url: settings.baseUrl,
+        model: settings.model || undefined,
+        response_mode: settings.responseMode,
+        force,
+        summary: {
+          period: statsPeriodLabel,
+          total: statsKpi.total,
+          done: statsKpi.done,
+          cancelled: statsKpi.cancelled,
+          active: statsKpi.active,
+          overdue: statsKpi.overdue,
+          overdue_rate: statsKpi.overdueRate,
+          completion_rate: statsKpi.completionRate,
+          sla_hit_rate: statsKpi.slaHitRate,
+          avg_close_hours: statsKpi.avgCloseHours,
+          median_close_hours: statsKpi.medianCloseHours,
+          high_share: statsKpi.highShare,
+          per_day: statsExtra.perDay,
+          top_category: statsExtra.topCat,
+          top_assignee: statsExtra.topAsg
+            ? { name: statsExtra.topAsg.name, count: statsExtra.topAsg.count, share: statsExtra.topShare }
+            : null,
+          trend: statsSeries.items.slice(-14).map((x) => ({ key: x.key, total: x.total })),
+        },
+      })
+      setStatsAi(result)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('requests.errors.generic'))
+    } finally {
+      setStatsAiBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    setStatsAi(null)
+  }, [statsFrom, statsTo, statsBasis, statsGroup])
 
   const statsLineChart = useMemo(() => {
     const labels = statsSeries.items.map((x) => x.key)
@@ -559,17 +662,18 @@ export function ServiceRequestsPage() {
   }, [filterCategory, query, rows, sortKey])
 
   const dbPageCount = useMemo(() => {
+    if (showAllRows) return 1
     const n =
       tab === 'database' &&
-      !dbShowAll &&
+      !showAllRows &&
       !query.trim() &&
       !filterCategory.trim() &&
       sortKey === 'id_desc'
         ? total
         : visibleRows.length
-    return Math.max(1, Math.ceil(n / dbPageSize))
+    return Math.max(1, Math.ceil(n / Math.max(1, dbPageSize)))
   }, [
-    dbShowAll,
+    showAllRows,
     dbPageSize,
     filterCategory,
     query,
@@ -582,7 +686,7 @@ export function ServiceRequestsPage() {
   const dbListTotal = useMemo(() => {
     if (
       tab === 'database' &&
-      !dbShowAll &&
+      !showAllRows &&
       !query.trim() &&
       !filterCategory.trim() &&
       sortKey === 'id_desc'
@@ -590,18 +694,18 @@ export function ServiceRequestsPage() {
       return total
     }
     return visibleRows.length
-  }, [dbShowAll, filterCategory, query, sortKey, tab, total, visibleRows.length])
+  }, [showAllRows, filterCategory, query, sortKey, tab, total, visibleRows.length])
 
   const dbRowsToRender = useMemo(() => {
     if (tab !== 'database') return visibleRows
     // Server already returned one page for the default sort/filter path.
     const serverPaged =
-      !dbShowAll && !query.trim() && !filterCategory.trim() && sortKey === 'id_desc'
-    if (serverPaged) return visibleRows
+      !showAllRows && !query.trim() && !filterCategory.trim() && sortKey === 'id_desc'
+    if (serverPaged || showAllRows) return visibleRows
     const p = Math.min(dbPage, dbPageCount)
     const start = (p - 1) * dbPageSize
     return visibleRows.slice(start, start + dbPageSize)
-  }, [tab, visibleRows, dbPage, dbPageCount, dbPageSize, dbShowAll, query, filterCategory, sortKey])
+  }, [tab, visibleRows, dbPage, dbPageCount, dbPageSize, showAllRows, query, filterCategory, sortKey])
 
   const load = useCallback(async () => {
     if (takeSkipNextListReload() && (tab === 'database' || tab === 'stats')) {
@@ -612,12 +716,15 @@ export function ServiceRequestsPage() {
       const editId = searchParams.get('edit')
       const clientFiltered = Boolean(query.trim() || filterCategory.trim())
       const needAll =
-        tab === 'stats' || Boolean(editId) || dbShowAll || clientFiltered || sortKey !== 'id_desc'
-      const r = await api.serviceRequests({
-        limit: needAll ? 1000 : dbPageSize,
-        skip: needAll ? 0 : (dbPage - 1) * dbPageSize,
-        ...(filterStatus && !editId ? { status: filterStatus } : {}),
-      })
+        tab === 'stats' || Boolean(editId) || showAllRows || clientFiltered || sortKey !== 'id_desc'
+      const statusFilter = filterStatus && !editId ? filterStatus : undefined
+      const r = needAll
+        ? await api.serviceRequestsAll({ status: statusFilter })
+        : await api.serviceRequests({
+            limit: dbPageSize,
+            skip: (dbPage - 1) * dbPageSize,
+            ...(statusFilter ? { status: statusFilter } : {}),
+          })
       setRows(r.items)
       setTotal(r.total)
     } catch (e) {
@@ -628,7 +735,7 @@ export function ServiceRequestsPage() {
   }, [
     dbPage,
     dbPageSize,
-    dbShowAll,
+    showAllRows,
     filterCategory,
     filterStatus,
     query,
@@ -987,7 +1094,7 @@ export function ServiceRequestsPage() {
   async function downloadPdf() {
     setPdfBusy(true)
     try {
-      await api.exportServiceRequestsPdf({ status: filterStatus, limit: dbShowAll ? 2000 : 400 })
+      await api.exportServiceRequestsPdf({ status: filterStatus, limit: showAllRows ? 2000 : 400 })
       toast.ok(t('requests.messages.pdfSaved'))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('requests.errors.generic'))
@@ -2013,21 +2120,6 @@ export function ServiceRequestsPage() {
                 </button>
               )
             })}
-            <button
-              type="button"
-              onClick={() => {
-                setDbShowAll((v) => !v)
-                setDbPage(1)
-              }}
-              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                dbShowAll
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-[var(--color-surface)] text-[var(--color-fg-muted)] ring-1 ring-slate-200 hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]'
-              }`}
-              title={dbShowAll ? t('requests.database.showLatest200Title') : t('requests.database.showAllTitle')}
-            >
-              {dbShowAll ? t('requests.database.showLatest200') : t('requests.database.showAll')}
-            </button>
           </div>
 
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -2097,7 +2189,9 @@ export function ServiceRequestsPage() {
                   >
                     {DB_PAGE_SIZE_OPTIONS.map((size) => (
                       <option key={size} value={size}>
-                        {t('requests.database.pageSize', { size })}
+                        {size === 0
+                          ? t('requests.database.pageSizeAll')
+                          : t('requests.database.pageSize', { size })}
                       </option>
                     ))}
                   </select>
@@ -2155,7 +2249,7 @@ export function ServiceRequestsPage() {
             ) : null}
           </h2>
 
-          {!loading && dbListTotal > dbPageSize ? (
+          {!loading && !showAllRows && dbListTotal > dbPageSize ? (
             <div className="mb-3 flex flex-col gap-2 text-sm text-[var(--color-fg-muted)] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <span>
                 {t('requests.database.pagination.shown', {
@@ -2344,10 +2438,10 @@ export function ServiceRequestsPage() {
                     : t('requests.database.empty')}
               </p>
             ) : (
-              <div className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm ring-1 ring-slate-200/25">
-                <div className="app-scroll max-h-[min(28rem,55vh)] overflow-auto overscroll-contain [scrollbar-gutter:stable]">
+              <div className="overflow-x-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+                <div>
                   <table className="min-w-[980px] w-full max-sm:min-w-[36rem] border-collapse text-left text-sm">
-                    <thead className="sticky top-0 z-10 bg-[var(--color-surface-muted)]">
+                    <thead className="bg-[var(--color-surface-muted)]">
                       <tr className="border-b border-[var(--color-border)] text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--color-fg-muted)]">
                         <th
                           className="app-table-sticky-col cursor-pointer px-3 py-2.5"
@@ -2480,7 +2574,7 @@ export function ServiceRequestsPage() {
                 </div>
               </div>
             )}
-            {!loading && dbListTotal > dbPageSize ? (
+            {!loading && !showAllRows && dbListTotal > dbPageSize ? (
               <div className="mt-3 flex flex-col gap-2 text-sm text-[var(--color-fg-muted)] sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <span>
                   {t('requests.database.pagination.shown', {
@@ -2518,21 +2612,25 @@ export function ServiceRequestsPage() {
         </div>
         ) : null}
 
-        {/* Статистика — vibe как у вкладки Сеть */}
         {tab === 'stats' ? (
-          <div className="mx-auto flex w-full min-w-0 flex-col gap-4 lg:col-span-12">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between print:hidden">
+          <div className="mx-auto flex w-full min-w-0 flex-col gap-5 lg:col-span-12">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between print:hidden">
               <div className="min-w-0">
-                <h2 className="text-lg font-semibold tracking-tight text-[var(--color-fg)]">{t('requests.stats.title')}</h2>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+                  {statsPeriodLabel}
+                </p>
+                <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight text-[var(--color-fg)]">
+                  {t('requests.stats.title')}
+                </h2>
                 <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
-                  {t('requests.stats.loadedHint', { count: rows.length })} · {statsPeriodLabel}
+                  {t('requests.stats.loadedHint', { count: rows.length })}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => void downloadExecutivePdf()}
-                  className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white"
+                  className="rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-semibold text-white shadow-sm"
                   title={t('requests.stats.presentationPdfTitle')}
                 >
                   {t('requests.stats.presentationPdf')}
@@ -2540,14 +2638,14 @@ export function ServiceRequestsPage() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium hover:bg-[var(--color-bg-muted)]"
+                  className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--color-bg-muted)]"
                 >
                   {t('requests.database.printPdf')}
                 </button>
                 <button
                   type="button"
                   onClick={() => void downloadPdf()}
-                  className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-medium hover:bg-[var(--color-bg-muted)]"
+                  className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--color-bg-muted)]"
                   title={t('requests.stats.tablePdfTitle')}
                 >
                   {t('requests.stats.tablePdf')}
@@ -2555,39 +2653,123 @@ export function ServiceRequestsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+            <div className="overflow-hidden rounded-[1.75rem] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm">
+              <div className="grid sm:grid-cols-2 xl:grid-cols-4">
+                {(
+                  [
+                    [t('requests.stats.inPeriod'), String(statsKpi.total), t('requests.stats.perDay'), String(statsExtra.perDay)],
+                    [t('requests.stats.done'), String(statsKpi.done), t('requests.stats.cancelled'), String(statsKpi.cancelled)],
+                    [t('requests.stats.overdue'), String(statsKpi.overdue), `${statsKpi.overdueRate}%`, ''],
+                    [t('requests.stats.slaHit'), `${statsKpi.slaHitRate}%`, t('requests.stats.medianClose'), statsKpi.medianCloseHours != null ? t('requests.stats.pdfHours', { h: statsKpi.medianCloseHours }) : '—'],
+                  ] as const
+                ).map(([label, value, subLabel, sub], index) => (
+                  <div
+                    key={label}
+                    className={`min-w-0 px-5 py-5 ${index < 3 ? 'xl:border-r' : ''} ${index % 2 === 0 ? 'sm:border-r' : ''} border-[var(--color-border)] ${index < 2 ? 'border-b xl:border-b-0' : ''} ${index === 2 ? 'border-b sm:border-b-0 xl:border-b-0' : ''}`}
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+                      {label}
+                    </div>
+                    <div className="mt-2 font-[family-name:var(--font-display)] text-3xl font-semibold tabular-nums tracking-tight text-[var(--color-fg)]">
+                      {value}
+                      {index === 2 && subLabel ? (
+                        <span className="ml-2 text-base font-medium text-[var(--color-fg-muted)]">{subLabel}</span>
+                      ) : null}
+                    </div>
+                    {index !== 2 ? (
+                      <div className="mt-2 flex items-baseline justify-between gap-2 text-xs text-[var(--color-fg-muted)]">
+                        <span>{subLabel}</span>
+                        <span className="tabular-nums font-medium text-[var(--color-fg)]">{sub}</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-xs text-[var(--color-fg-muted)]">{t('requests.stats.highShare')}: {statsKpi.highShare}%</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {(
                 [
-                  [t('requests.stats.inPeriod'), String(statsRows.length), ''],
-                  [t('requests.stats.done'), String(statsKpi.done), `${statsKpi.completionRate}%`],
-                  [t('requests.stats.cancelled'), String(statsKpi.cancelled), ''],
-                  [t('requests.stats.active'), String(statsKpi.active), ''],
-                  [t('requests.stats.overdue'), String(statsKpi.overdue), `${statsKpi.overdueRate}%`],
-                  [
-                    t('requests.stats.avgClose'),
-                    statsKpi.avgCloseHours != null ? t('requests.stats.pdfHours', { h: statsKpi.avgCloseHours }) : '—',
-                    '',
-                  ],
-                  [t('requests.stats.slaHit'), `${statsKpi.slaHitRate}%`, ''],
+                  [t('requests.stats.openNow'), String(statsKpi.openN)],
+                  [t('requests.stats.progressNow'), String(statsKpi.progressN)],
+                  [t('requests.stats.avgClose'), statsKpi.avgCloseHours != null ? t('requests.stats.pdfHours', { h: statsKpi.avgCloseHours }) : '—'],
+                  [t('requests.stats.highShare'), `${statsKpi.highShare}%`],
+                  [t('requests.stats.topCategory'), statsExtra.topCat?.name || '—'],
+                  [t('requests.stats.topAssignee'), statsExtra.topAsg?.name || '—'],
                 ] as const
-              ).map(([label, value, sub]) => (
+              ).map(([label, value]) => (
                 <div
                   key={label}
-                  className="min-w-0 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-3 shadow-sm"
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-sm"
                 >
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-fg-muted)]">{label}</div>
-                  <div className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-[var(--color-fg)]">
+                  <span className="text-xs font-medium text-[var(--color-fg-muted)]">{label}</span>
+                  <span className="truncate text-sm font-semibold tabular-nums text-[var(--color-fg)]" title={value}>
                     {value}
-                    {sub ? <span className="ml-1.5 text-xs font-normal text-[var(--color-fg-subtle)]">{sub}</span> : null}
-                  </div>
+                  </span>
                 </div>
               ))}
             </div>
 
+            <div className="grid gap-4 xl:grid-cols-12">
+              <div className="rounded-[1.5rem] border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm xl:col-span-5">
+                <h3 className="font-[family-name:var(--font-display)] text-base font-semibold text-[var(--color-fg)]">
+                  {t('requests.stats.insightsTitle')}
+                </h3>
+                {statsExtra.bullets.length > 0 ? (
+                  <ul className="mt-4 space-y-3">
+                    {statsExtra.bullets.map((item) => (
+                      <li key={item} className="flex gap-3 text-sm leading-6 text-[var(--color-fg)]">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" aria-hidden />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-4 text-sm text-[var(--color-fg-muted)]">{t('requests.stats.noDataForPeriod')}</p>
+                )}
+              </div>
+              <div className="rounded-[1.5rem] border border-[var(--color-border)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--color-primary)_8%,var(--color-surface)),var(--color-surface)_42%)] p-5 shadow-sm xl:col-span-7">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <IconAssistant className="h-5 w-5 text-[var(--color-primary)]" />
+                      <h3 className="font-[family-name:var(--font-display)] text-base font-semibold text-[var(--color-fg)]">
+                        {t('requests.stats.aiTitle')}
+                      </h3>
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-[var(--color-fg-muted)]">
+                      {t('requests.stats.aiHint')} {!canManageRequests ? t('requests.stats.aiPermission') : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={statsAiBusy || !canManageRequests || statsKpi.total === 0}
+                    onClick={() => void runStatsAi(Boolean(statsAi))}
+                    className="shrink-0 rounded-xl bg-[var(--color-primary)] px-3.5 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                  >
+                    {statsAiBusy ? t('requests.stats.aiBusy') : statsAi ? t('requests.stats.aiRefresh') : t('requests.stats.aiRun')}
+                  </button>
+                </div>
+                <div className="mt-4 min-h-40 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm leading-7 text-[var(--color-fg)]">
+                  {statsAi ? (
+                    <div className="whitespace-pre-wrap">{statsAi.text}</div>
+                  ) : (
+                    <div className="flex min-h-28 items-center text-[var(--color-fg-muted)]">{t('requests.stats.aiEmpty')}</div>
+                  )}
+                  {statsAi?.model ? (
+                    <div className="mt-3 border-t border-[var(--color-border)] pt-2 text-[10px] text-[var(--color-fg-subtle)]">
+                      {statsAi.model}
+                      {statsAi.cached ? ' · cache' : ''}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 print:hidden sm:p-5">
-              <div className="grid gap-6 xl:grid-cols-2">
-                <div>
-              <div className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-fg-muted)]">
+              <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
                 {t('requests.stats.filters')}
               </div>
               <div className="grid gap-4 lg:grid-cols-12">
@@ -2684,7 +2866,7 @@ export function ServiceRequestsPage() {
                     ))}
                   </div>
                 </div>
-                <div className="flex flex-wrap items-end gap-2 lg:col-span-12">
+                <div className="flex flex-wrap items-end gap-2 lg:col-span-8">
                   <button
                     type="button"
                     onClick={() => setStatsOnlyWithPlanned((v) => !v)}
@@ -2723,48 +2905,46 @@ export function ServiceRequestsPage() {
                   </label>
                 </div>
               </div>
-                </div>
-                <div>
-                  <div className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-fg-muted)]">
-                    {t('requests.stats.pdfOptions')}
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-sm sm:col-span-2">
-                      <span className="mb-1 block text-xs text-[var(--color-fg-subtle)]">{t('requests.stats.reportName')}</span>
-                      <input type="text" value={execReportTitle} onChange={(e) => setExecReportTitle(e.target.value)} className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm" />
-                    </label>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-xs text-[var(--color-fg-subtle)]">{t('requests.stats.audience')}</span>
-                      <input type="text" value={execReportAudience} onChange={(e) => setExecReportAudience(e.target.value)} className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm" />
-                    </label>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-xs text-[var(--color-fg-subtle)]">{t('requests.stats.author')}</span>
-                      <input
-                        type="text"
-                        value={execReportAuthor}
-                        onChange={(e) => setExecReportAuthor(e.target.value)}
-                        placeholder={user?.full_name || user?.username || t('requests.stats.authorPlaceholder')}
-                        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <div className="flex flex-wrap gap-2 sm:col-span-2">
-                      {(
-                        [
-                          [execIncludeNarrative, setExecIncludeNarrative, t('requests.stats.includeNarrative')],
-                          [execIncludeChart, setExecIncludeChart, t('requests.stats.includeChart')],
-                          [execIncludeDistributions, setExecIncludeDistributions, t('requests.stats.includeDistributions')],
-                          [execIncludeAssigneeLoad, setExecIncludeAssigneeLoad, t('requests.stats.includeAssigneeLoad')],
-                        ] as const
-                      ).map(([checked, setChecked, label], i) => (
-                        <label key={i} className="inline-flex items-center gap-2 rounded-full bg-[var(--color-bg-muted)] px-3 py-1 text-xs text-[var(--color-fg)]">
-                          <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-                          {label}
-                        </label>
-                      ))}
-                    </div>
+              <details className="mt-4 border-t border-[var(--color-border)] pt-3">
+                <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+                  {t('requests.stats.pdfOptionsToggle')}
+                </summary>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm sm:col-span-2">
+                    <span className="mb-1 block text-xs text-[var(--color-fg-subtle)]">{t('requests.stats.reportName')}</span>
+                    <input type="text" value={execReportTitle} onChange={(e) => setExecReportTitle(e.target.value)} className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm" />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-xs text-[var(--color-fg-subtle)]">{t('requests.stats.audience')}</span>
+                    <input type="text" value={execReportAudience} onChange={(e) => setExecReportAudience(e.target.value)} className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm" />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-xs text-[var(--color-fg-subtle)]">{t('requests.stats.author')}</span>
+                    <input
+                      type="text"
+                      value={execReportAuthor}
+                      onChange={(e) => setExecReportAuthor(e.target.value)}
+                      placeholder={user?.full_name || user?.username || t('requests.stats.authorPlaceholder')}
+                      className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2 sm:col-span-2">
+                    {(
+                      [
+                        [execIncludeNarrative, setExecIncludeNarrative, t('requests.stats.includeNarrative')],
+                        [execIncludeChart, setExecIncludeChart, t('requests.stats.includeChart')],
+                        [execIncludeDistributions, setExecIncludeDistributions, t('requests.stats.includeDistributions')],
+                        [execIncludeAssigneeLoad, setExecIncludeAssigneeLoad, t('requests.stats.includeAssigneeLoad')],
+                      ] as const
+                    ).map(([checked, setChecked, label], i) => (
+                      <label key={i} className="inline-flex items-center gap-2 rounded-full bg-[var(--color-bg-muted)] px-3 py-1 text-xs text-[var(--color-fg)]">
+                        <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+                        {label}
+                      </label>
+                    ))}
                   </div>
                 </div>
-              </div>
+              </details>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-12">

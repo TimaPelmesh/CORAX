@@ -17,62 +17,60 @@ echo.
 
 if /i "%~1"=="nopause" set "INV_NOPAUSE=1"
 
-if not exist "%CORAX_PS%" (
-  echo [BAT] ERROR: PowerShell not found:
-  echo        %CORAX_PS%
-  set "ERR=1"
-  goto :done
-)
+if exist "%CORAX_PS%" goto :have_ps
+echo [BAT] ERROR: PowerShell not found:
+echo        %CORAX_PS%
+set "ERR=1"
+goto :done
+:have_ps
 
-if not defined INV_NOPAUSE if exist "%~dp0corax_splash.ps1" (
-  "%CORAX_PS%" -NoProfile -NoLogo -ExecutionPolicy Bypass -File "%~dp0corax_splash.ps1"
-)
+if exist "%~dp0agent_env.bat" call "%~dp0agent_env.bat"
+if defined INVENTORY_SERVER goto :have_env
+for %%I in ("%~dp0..") do set "CORAX_PARENT=%%~fI"
+if exist "%CORAX_PARENT%\agent_env.bat" call "%CORAX_PARENT%\agent_env.bat"
+:have_env
 
-if exist "%~dp0agent_env.bat" (
-  call "%~dp0agent_env.bat"
-) else if exist "%~dp0..\agent_env.bat" (
-  call "%~dp0..\agent_env.bat"
-) else (
-  echo [BAT] WARN: agent_env.bat not found. Set INVENTORY_SERVER and AGENT_TOKEN.
-)
+if /i not "%~1"=="nopause" if not "%~1"=="" echo %~1 | findstr /I /C:"http://" /C:"https://">NUL && set "INVENTORY_SERVER=%~1"
 
-if not defined INVENTORY_SERVER (
-  echo %~1 | findstr /I /R "^http:// ^https://">NUL
-  if "%ERRORLEVEL%"=="0" set "INVENTORY_SERVER=%~1"
-)
-if not defined INVENTORY_SERVER (
-  echo [BAT] ERROR: INVENTORY_SERVER is not set. Use the panel ZIP (agent_env.bat).
-  set "ERR=2"
-  goto :done
-)
+if defined INVENTORY_SERVER goto :have_server
+echo [BAT] ERROR: INVENTORY_SERVER is not set. Use the panel ZIP, file agent_env.bat.
+set "ERR=2"
+goto :done
+:have_server
 
-if not defined AGENT_TOKEN (
-  echo [BAT] ERROR: AGENT_TOKEN is not set. Use agent_env.bat from admin bundle.
-  set "ERR=2"
-  goto :done
-)
+if defined AGENT_TOKEN goto :have_token
+echo [BAT] ERROR: AGENT_TOKEN is not set. Use agent_env.bat from admin bundle.
+set "ERR=2"
+goto :done
+:have_token
 
 echo   TARGET  %INVENTORY_SERVER%
 echo   START   %DATE% %TIME%
 echo.
 
-if not exist "%~dp0InventoryClient.ps1" (
-  echo  [FAIL] InventoryClient.ps1 not found in %~dp0
-  set "ERR=1"
-  goto :done
-)
+if exist "%~dp0InventoryClient.ps1" goto :have_client
+echo  [FAIL] InventoryClient.ps1 not found in %~dp0
+set "ERR=1"
+goto :done
+:have_client
 
-"%CORAX_PS%" -NoProfile -NoLogo -ExecutionPolicy Bypass -File "%~dp0InventoryClient.ps1"
+REM Stay in THIS console. Do not use the START command - that opens a new
+REM minimized window on Windows 10/11.
+"%CORAX_PS%" -NoProfile -NoLogo -WindowStyle Normal -ExecutionPolicy Bypass -File "%~dp0InventoryClient.ps1"
 set "ERR=%ERRORLEVEL%"
 
 echo.
-if "%ERR%"=="0" (
-  echo   STATUS  OK
-) else (
-  echo   STATUS  FAILED code %ERR%
-  echo   See corax-agent.log in this folder and %%TEMP%%\corax-agent.log
-)
+if not "%ERR%"=="0" goto :status_fail
+echo   STATUS  OK
+goto :done
+:status_fail
+echo   STATUS  FAILED code %ERR%
+echo   See corax-agent.log in this folder and %%TEMP%%\corax-agent.log
 
 :done
-if not defined INV_NOPAUSE if not defined CORAX_INNER pause
+if defined INV_NOPAUSE goto :leave
+if defined CORAX_INNER goto :leave
+echo.
+pause
+:leave
 endlocal & exit /b %ERR%

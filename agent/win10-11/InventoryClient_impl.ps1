@@ -30,10 +30,17 @@ function Install-CoraxHelpdeskShortcut {
     $pc = [uri]::EscapeDataString($hostName)
     $url = "$base/h#pc=$pc"
     $body = "[InternetShortcut]`r`nURL=$url`r`n"
-    if ($IconPath -and (Test-Path -LiteralPath $IconPath)) {
-        $body += "IconFile=$IconPath`r`nIconIndex=0`r`n"
+    $icon = $IconPath
+    if (-not $icon -or -not (Test-Path -LiteralPath $icon)) {
+        $sys = Join-Path $env:SystemRoot 'System32'
+        $tryIcon = Join-Path $sys 'imageres.dll'
+        if (Test-Path -LiteralPath $tryIcon) { $icon = $tryIcon } else { $icon = Join-Path $sys 'shell32.dll' }
     }
-    $name = 'Заявка CORAX.url'
+    if ($icon -and (Test-Path -LiteralPath $icon)) {
+        $idx = if ($icon -match 'imageres\.dll$') { 81 } else { 14 }
+        $body += "IconFile=$icon`r`nIconIndex=$idx`r`n"
+    }
+    $names = @('Заявка CORAX.url', 'CORAX-ticket.url')
     $dirs = @()
     $pub = [Environment]::GetFolderPath('CommonDesktopDirectory')
     if ($pub) { $dirs += $pub }
@@ -54,10 +61,13 @@ function Install-CoraxHelpdeskShortcut {
     }
     $written = 0
     foreach ($d in ($dirs | Select-Object -Unique)) {
-        try {
-            [System.IO.File]::WriteAllText((Join-Path $d $name), $body, [Text.UTF8Encoding]::new($false))
-            $written++
-        } catch { }
+        foreach ($name in $names) {
+            try {
+                [System.IO.File]::WriteAllText((Join-Path $d $name), $body, [Text.UTF8Encoding]::new($false))
+                $written++
+                break
+            } catch { }
+        }
     }
     if ($written -gt 0) { Log "Helpdesk shortcut: $url ($written)" }
 }

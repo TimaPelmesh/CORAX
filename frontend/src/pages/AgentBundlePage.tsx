@@ -217,8 +217,8 @@ export function AgentBundlePage() {
           <div className="inline-flex max-w-full flex-wrap rounded-lg border border-[var(--color-border)] p-0.5">
             {(
               [
-                ['cpp', 'agentBundle.platformCpp'],
                 ['win10', 'agentBundle.platformWin10'],
+                ['cpp', 'agentBundle.platformCpp'],
                 ['linux', 'agentBundle.platformLinux'],
               ] as const
             ).map(([id, key]) => (

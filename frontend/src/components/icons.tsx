@@ -352,6 +352,24 @@ export function IconBook({ className, title }: Props) {
   )
 }
 
+export function IconAssistant({ className, title }: Props) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden={!title} role="presentation">
+      {title ? <title>{title}</title> : null}
+      <path
+        d="M5.4 5.75h10.7A2.6 2.6 0 0 1 18.7 8.35v6.15a2.6 2.6 0 0 1-2.6 2.6h-5.35L7.1 20.1v-3h-1.7A2.6 2.6 0 0 1 2.8 14.5V8.35A2.6 2.6 0 0 1 5.4 5.75z"
+        {...soft}
+      />
+      <path
+        d="M5.4 5.75h10.7A2.6 2.6 0 0 1 18.7 8.35v6.15a2.6 2.6 0 0 1-2.6 2.6h-5.35L7.1 20.1v-3h-1.7A2.6 2.6 0 0 1 2.8 14.5V8.35A2.6 2.6 0 0 1 5.4 5.75z"
+        {...s}
+      />
+      <path d="M7.35 10.7h6.4M7.35 13.35h4.1" {...s} strokeWidth={sw * 0.9} opacity={0.9} />
+      <path d="M18.35 4.15v2.55M17.1 5.42h2.5" {...s} strokeWidth={sw * 0.95} />
+    </svg>
+  )
+}
+
 export function IconFolder({ className, title }: Props) {
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden={!title} role="presentation">

@@ -17,7 +17,8 @@ function Log([string]$Msg) {
 
 function Set-AgentProgress {
     param([string]$Status, [int]$Percent)
-    Write-Progress -Id 1 -Activity '[*] CORAX Agent' -Status $Status -PercentComplete $Percent
+    $pct = [Math]::Max(0, [Math]::Min(100, $Percent))
+    Write-Host ("  [{0,3}%] {1}" -f $pct, $Status)
 }
 
 function Stop-AgentJob {
@@ -60,7 +61,6 @@ function Invoke-WithTimeout {
 }
 
 function Clear-AgentProgress {
-    Write-Progress -Id 1 -Activity 'done' -Completed
 }
 
 function Get-AgentConfig {
@@ -160,6 +160,94 @@ function Safe-Collect {
     }
 }
 
+function Get-CoraxDesktopDirs {
+    $dirs = New-Object System.Collections.Generic.List[string]
+    $add = {
+        param([string]$p)
+        if ([string]::IsNullOrWhiteSpace($p)) { return }
+        try {
+            if (-not (Test-Path -LiteralPath $p)) { return }
+            [void]$dirs.Add((Get-Item -LiteralPath $p).FullName)
+        } catch { }
+    }
+    foreach ($folder in @(
+            [Environment]::GetFolderPath('CommonDesktopDirectory')
+            [Environment]::GetFolderPath('Desktop')
+        )) {
+        if ($folder -and -not (Test-Path -LiteralPath $folder)) {
+            try { New-Item -ItemType Directory -Path $folder -Force | Out-Null } catch { }
+        }
+        & $add $folder
+    }
+    try { & $add ([Environment]::GetFolderPath('DesktopDirectory')) } catch { }
+    if ($env:USERPROFILE) {
+        & $add (Join-Path $env:USERPROFILE 'Desktop')
+        & $add (Join-Path $env:USERPROFILE 'OneDrive\Desktop')
+        Get-ChildItem -LiteralPath $env:USERPROFILE -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'OneDrive*' } |
+            ForEach-Object { & $add (Join-Path $_.FullName 'Desktop') }
+    }
+    if ($env:OneDrive) { & $add (Join-Path $env:OneDrive 'Desktop') }
+    if ($env:OneDriveCommercial) { & $add (Join-Path $env:OneDriveCommercial 'Desktop') }
+    $who = [string]$env:USERNAME
+    if ($who -match '^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE)$') {
+        $usersRoot = Split-Path -Parent $env:PUBLIC
+        if (-not $usersRoot) { $usersRoot = 'C:\Users' }
+        Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '^(Public|Default|Default User|All Users|WDAGUtilityAccount)$' } |
+            ForEach-Object {
+                & $add (Join-Path $_.FullName 'Desktop')
+                & $add (Join-Path $_.FullName 'OneDrive\Desktop')
+                Get-ChildItem -LiteralPath $_.FullName -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like 'OneDrive*' } |
+                    ForEach-Object { & $add (Join-Path $_.FullName 'Desktop') }
+            }
+    }
+    if ($PSScriptRoot) {
+        $win10 = Split-Path -Parent $PSScriptRoot
+        & $add $win10
+        if ($win10) { & $add (Split-Path -Parent $win10) }
+    }
+    return @($dirs | Select-Object -Unique)
+}
+
+function Save-CoraxInternetShortcut {
+    param([string]$Path, [string]$Url, [string]$IconFile, [int]$IconIndex)
+    $isLnk = $Path -match '\.lnk$'
+    $w = $null
+    try {
+        $w = New-Object -ComObject WScript.Shell
+        $sc = $w.CreateShortcut($Path)
+        if ($isLnk) {
+            $sc.TargetPath = (Join-Path $env:SystemRoot 'explorer.exe')
+            $sc.Arguments = $Url
+            $sc.WindowStyle = 1
+        } else {
+            $sc.TargetPath = $Url
+        }
+        if ($IconFile) { $sc.IconLocation = "$IconFile,$IconIndex" }
+        try { $sc.Description = 'Helpdesk /h' } catch { }
+        $sc.Save()
+        if (Test-Path -LiteralPath $Path) { return $true }
+    } catch { }
+    finally {
+        if ($w) { try { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($w) } catch { } }
+    }
+    if ($isLnk) { return $false }
+    try {
+        $nl = "`r`n"
+        $body = '[InternetShortcut]' + $nl + 'URL=' + $Url + $nl
+        if ($IconFile) {
+            $body += 'IconFile=' + $IconFile + $nl + 'IconIndex=' + $IconIndex + $nl
+        }
+        [System.IO.File]::WriteAllText($Path, $body, [Text.Encoding]::Unicode)
+        return (Test-Path -LiteralPath $Path)
+    } catch {
+        Log ("WARN: shortcut write $($Path): $($_.Exception.Message)")
+        return $false
+    }
+}
+
 function Install-CoraxHelpdeskShortcut {
     param(
         [string]$ServerUrl,
@@ -172,35 +260,34 @@ function Install-CoraxHelpdeskShortcut {
     $base = $ServerUrl.TrimEnd('/')
     $pc = [uri]::EscapeDataString($hostName)
     $url = "$base/h#pc=$pc"
-    $body = "[InternetShortcut]`r`nURL=$url`r`n"
-    if ($IconPath -and (Test-Path -LiteralPath $IconPath)) {
-        $body += "IconFile=$IconPath`r`nIconIndex=0`r`n"
+    $icon = $IconPath
+    $idx = 81
+    if (-not $icon -or -not (Test-Path -LiteralPath $icon)) {
+        $sys = Join-Path $env:SystemRoot 'System32'
+        $tryIcon = Join-Path $sys 'imageres.dll'
+        if (Test-Path -LiteralPath $tryIcon) { $icon = $tryIcon; $idx = 81 }
+        else { $icon = Join-Path $sys 'shell32.dll'; $idx = 14 }
     }
-    $name = 'Заявка CORAX.url'
-    $dirs = @()
-    $pub = [Environment]::GetFolderPath('CommonDesktopDirectory')
-    if ($pub) { $dirs += $pub }
-    $who = [string]$env:USERNAME
-    $isSvc = $who -match '^(SYSTEM|LOCAL SERVICE|NETWORK SERVICE)$'
-    if (-not $isSvc) {
-        $userDesk = [Environment]::GetFolderPath('Desktop')
-        if ($userDesk) { $dirs += $userDesk }
-    } else {
-        $usersRoot = Split-Path -Parent $env:PUBLIC
-        if (-not $usersRoot) { $usersRoot = 'C:\Users' }
-        Get-ChildItem -LiteralPath $usersRoot -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notmatch '^(Public|Default|Default User|All Users|WDAGUtilityAccount)$' } |
-            ForEach-Object {
-                $d = Join-Path $_.FullName 'Desktop'
-                if (Test-Path -LiteralPath $d) { $dirs += $d }
-            }
-    }
+    $names = @(
+        'Заявка в IT.lnk',
+        'Заявка CORAX.lnk',
+        'CORAX-ticket.lnk',
+        'Заявка в IT.url',
+        'Заявка CORAX.url',
+        'CORAX-ticket.url'
+    )
     $written = 0
-    foreach ($d in ($dirs | Select-Object -Unique)) {
-        try {
-            [System.IO.File]::WriteAllText((Join-Path $d $name), $body, [Text.UTF8Encoding]::new($false))
-            $written++
-        } catch { }
+    foreach ($d in (Get-CoraxDesktopDirs)) {
+        foreach ($name in $names) {
+            $path = Join-Path $d $name
+            if (Save-CoraxInternetShortcut -Path $path -Url $url -IconFile $icon -IconIndex $idx) {
+                $written++
+                Log "Helpdesk shortcut: $path"
+                break
+            }
+        }
     }
-    if ($written -gt 0) { Log "Helpdesk shortcut: $url ($written)" }
+    if ($written -gt 0) { Log "Helpdesk shortcut OK: $url ($written)" }
+    else { Log "WARN: helpdesk shortcut was not created for $url" }
 }
+

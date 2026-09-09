@@ -31,11 +31,13 @@ export const ru = {
     night: 'Доброй ночи',
   },
   roles: {
+    admin: 'Администратор',
     editor: 'Редактор',
     viewer: 'Наблюдатель',
   },
   nav: {
     inventory: 'Инвентарь',
+    sidebarBlurb: 'Парк, заявки и база знаний',
     dashboard: 'Дашборд',
     risks: 'Центр рисков',
     computers: 'Компьютеры',
@@ -100,6 +102,10 @@ export const ru = {
     notifyNewMany: 'Новых заявок: {n}',
     statusOpen: 'Открыта',
     statusInProgress: 'В работе',
+    profileMenu: 'Профиль',
+    profileMenuHint: 'Тема и настройки',
+    themeTitle: 'Оформление',
+    signedIn: 'Вы вошли',
   },
   prefs: {
     title: 'Настройки',
@@ -211,7 +217,7 @@ export const ru = {
     zabbixSubtitle: 'Подключение Zabbix (чтение API)',
     zabbixDataSubtitle: 'Хосты и проблемы из Zabbix (только чтение).',
     agentTokensSubtitle: 'Токены для агентов инвентаризации',
-    agentBundleSubtitle: 'Безопасные portable-агенты для Windows 7/10/11 и Linux',
+    agentBundleSubtitle: 'Windows: PowerShell ZIP (рекомендуется). EXE — пока не 1:1 с PowerShell.',
     wolSubtitle:
       'Кому разрешено включать ПК для обслуживания. Кнопка — в карточке ПК, только если машина не в сети.',
     httpsSubtitle:
@@ -1579,6 +1585,7 @@ export const ru = {
       pageSizeLabel: 'На странице',
       pageSizeAria: 'Количество заявок на странице',
       pageSize: '{size} заявок',
+      pageSizeAll: 'Все заявки',
       ofTotal: 'из {total}',
       sort: {
         idDesc: 'ID ↓ (новые сверху)',
@@ -1723,6 +1730,29 @@ export const ru = {
       overdue: 'Просроченных',
       avgClose: 'Среднее закрытие',
       avgCloseSub: 'От даты открытия до фактического закрытия',
+      perDay: 'Заявок в день',
+      highShare: 'Высокий приоритет',
+      medianClose: 'Медиана закрытия',
+      topCategory: 'Главная категория',
+      topAssignee: 'Главный исполнитель',
+      aiTitle: 'Отчёт ИИ-агента',
+      aiHint: 'Модель комментирует динамику, нагрузку и риски по выбранному периоду — без выдуманных заявок.',
+      aiRun: 'Получить инсайты',
+      aiRefresh: 'Обновить анализ',
+      aiBusy: 'Модель анализирует…',
+      aiEmpty: 'Запустите анализ, чтобы получить комментарий к динамике и приоритетам.',
+      aiPermission: 'Запуск доступен редакторам и администраторам.',
+      insightOverdue: 'Просрочено {n} заявок ({pct}%) — это главный риск периода.',
+      insightSla: 'В срок закрыто {pct}% заявок со сроком.',
+      insightLoad: '{name} несёт {pct}% потока — нагрузка сконцентрирована.',
+      insightHigh: 'Высокий приоритет у {pct}% заявок.',
+      insightDone: 'Закрыто {n} заявок ({pct}% потока).',
+      insightTrendUp: 'Поток растёт: последние дни выше предыдущих.',
+      insightTrendDown: 'Поток снижается: последних дней меньше, чем раньше.',
+      insightsTitle: 'Что видно по цифрам',
+      pdfOptionsToggle: 'Параметры PDF',
+      openNow: 'Открыто',
+      progressNow: 'В работе',
       slaHit: 'SLA в срок',
       slaHitSub: 'Закрытые в плановую дату или раньше',
       dynamics: 'Динамика (объём заявок)',
@@ -2348,13 +2378,13 @@ export const ru = {
     buildError: 'Ошибка сборки',
     apiNotRespondingSuffix:
       '. API CORAX не отвечает на этом URL/порту — проверьте, что сервер запущен (prod :3000 или dev API :3001).',
-    platformCpp: 'Нативный Windows (рекомендуется)',
-    platformWin10: 'ZIP Windows (7 / 10 / 11)',
+    platformCpp: 'Нативный EXE (не 1:1 с PowerShell)',
+    platformWin10: 'ZIP PowerShell Windows (рекомендуется)',
     platformWin7: 'ZIP Windows 7',
     platformLinux: 'ZIP Linux (bash)',
     formatCpp: 'Portable ZIP',
     cppNotice:
-      'Нативный x64-агент для Windows 7/10/11. В ZIP лежат неизменяемый EXE, открытый конфиг и одноразовый файл выдачи доступа. При первом запуске Windows DPAPI привязывает токен к машине и удаляет исходный файл. EXE остаётся байт-в-байт одинаковым, поэтому подпись Authenticode не ломается.',
+      'Нативный x64 EXE для Windows 7/10/11. Состав инвентаря пока не совпадает 1:1 с PowerShell-агентом — для продакшена используйте ZIP PowerShell. В архиве: неизменяемый EXE, открытый конфиг и одноразовая выдача токена (DPAPI). Подпись Authenticode не ломается, пока EXE байт-в-байт тот же.',
     guideLink: 'Полная инструкция: База знаний → Руководство',
     linuxNotice:
       'Bash-агент для Linux. В ZIP: agent_env.sh (URL + токен) и скрипты. Распакуйте в /opt/corax-agent (не в /opt/corax). Обновление скриптов: update_scripts.sh — не затирает agent_env.sh. Подробно — Руководство, раздел «Linux-агент».',
@@ -2379,7 +2409,7 @@ export const ru = {
     win7Notice:
       'Базовый профиль: WMI, реестр ПО, PnP-периферия. Расширенные модули (патчи, BitLocker, Docker и т.д.) доступны только в сборке для Windows 10/11.',
     windowsZipNotice:
-      'Один архив на все Windows. corax_send.bat сам определяет Win7 или 10/11 и запускает нужные скрипты. Распакуйте не рядом с сервером CORAX. При обновлении: update_scripts.bat — agent_env.bat (URL и токен) не затирается. Подробно — Руководство, раздел «Агент инвентаризации».',
+      'Канонический агент для Windows. corax_send.bat сам выбирает Win7 или 10/11. Анимация splash по умолчанию выключена (из‑за неё окно cmd пропадало). После запуска на рабочем столе появляется ярлык «Заявка CORAX» на /h с уже вписанным именем ПК. Обновление: update_scripts.bat — agent_env.bat не затирается.',
     collectionLevel: 'Уровень сбора',
     levelFull: 'Полный',
     levelFullHint: 'Все модули: сеть, патчи, безопасность, Office, Docker/WSL и т.д.',
@@ -2417,7 +2447,7 @@ export const ru = {
     summaryScheduleEnabled: 'install_schedule.bat',
     summaryScheduleDisabled: 'Нет',
     summaryArchiveWin10:
-      'В архиве: corax_send.bat (автовыбор ОС), win10/, win7/, agent_env.bat, agent_config.json, update_scripts.bat.',
+      'В архиве: corax_send.bat (автовыбор ОС), win10/ (PowerShell 5+), win7/, agent_env.bat, agent_config.json, update_scripts.bat. Ярлык заявки на рабочий стол: /h#pc=ИМЯ-ПК.',
     summaryArchiveWin7:
       'В архиве: inventory_send_win7.bat, agent_env.bat, PowerShell-скрипты.',
     summaryArchiveCpp:
@@ -2438,7 +2468,7 @@ export const ru = {
     deployStep2LinuxBefore: 'На хосте выполните',
     deployStep2LinuxAfter: '— отчёт уйдёт на {serverUrl}.',
     deployStep3Win10:
-      'Расписание: от администратора — install_schedule.bat. Обновление скриптов: update_scripts.bat (не затирает agent_env.bat).',
+      'Расписание: от администратора — install_schedule.bat. Обновление: update_scripts.bat (не затирает agent_env.bat). Ярлык «Заявка CORAX» на рабочем столе открывает /h с именем этого ПК.',
     deployStep3Win7:
       'Расписание: настройте задачу в Планировщике Windows на запуск bat вручную или через GPO.',
     deployStep3Cpp:

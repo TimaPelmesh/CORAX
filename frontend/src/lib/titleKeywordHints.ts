@@ -1,33 +1,74 @@
-/** Keyword → title hints for public /h (mirrors backend title_keyword_hints.py). */
+/** Word-level autocomplete for public /h — real IT terms, prefix of the last word. */
 
-const TITLE_KEYWORD_HINTS: Array<{ keywords: string[]; title: string }> = [
-  { keywords: ['bitrix', 'битрикс', 'б24', 'b24'], title: 'Проблема с Bitrix24' },
-  { keywords: ['outlook', 'аутлук'], title: 'Проблема с почтой Outlook' },
-  { keywords: ['почт', 'email', 'e-mail', 'письмо'], title: 'Проблема с почтой' },
-  { keywords: ['принтер', 'печать', 'мфу', 'сканер', 'картридж'], title: 'Проблема с принтером' },
-  { keywords: ['интернет', 'wifi', 'wi-fi', 'сеть', 'vpn'], title: 'Проблема с интернетом / сетью' },
-  { keywords: ['телефон', 'атс', 'voip'], title: 'Проблема с телефонией' },
-  { keywords: ['монитор', 'клавиатур', 'мыш', 'наушник'], title: 'Проблема с периферией' },
-  { keywords: ['windows', 'синий экран', 'bsod', 'не включа'], title: 'Проблема с компьютером' },
-  { keywords: ['1с', '1c', 'office', 'excel', 'word'], title: 'Проблема с программой' },
-  { keywords: ['rdp', 'удаленн', 'remote', 'citrix'], title: 'Удалённый рабочий стол' },
-  { keywords: ['zoom', 'teams', 'trueconf', 'видеоконферен', 'проектор'], title: 'Проблема с видеоконференцией' },
-  { keywords: ['парол', 'учетн', 'учётн', 'логин', 'доступ'], title: 'Проблема с доступом / учётной записью' },
-]
+const HELP_TERMS = [
+  'картридж',
+  'принтер',
+  'сканер',
+  'МФУ',
+  'тонер',
+  'бумага',
+  'Outlook',
+  'почта',
+  'Bitrix24',
+  '1С',
+  'Excel',
+  'Word',
+  'интернет',
+  'Wi-Fi',
+  'VPN',
+  'монитор',
+  'клавиатура',
+  'мышь',
+  'наушники',
+  'пароль',
+  'логин',
+  'доступ',
+  'Teams',
+  'Zoom',
+  'проектор',
+  'телефон',
+  'Windows',
+  'компьютер',
+  'RDP',
+  'Citrix',
+] as const
 
-export function matchTitleHints(text: string, limit = 5): string[] {
-  const raw = text.trim().toLowerCase()
-  if (raw.length < 2) return []
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const { keywords, title } of TITLE_KEYWORD_HINTS) {
-    if (keywords.some((k) => raw.includes(k))) {
-      if (!seen.has(title)) {
-        seen.add(title)
-        out.push(title)
-      }
-      if (out.length >= limit) break
-    }
+function norm(s: string): string {
+  return s.trim().toLowerCase().replace(/ё/g, 'е')
+}
+
+export function lastTitleToken(text: string): { before: string; token: string } {
+  const m = text.match(/^(.*?)([^\s.,;:!?«»"']+)$/u)
+  if (!m) return { before: text, token: '' }
+  return { before: m[1], token: m[2] }
+}
+
+export function applyTitleCompletion(text: string, term: string): string {
+  const { before, token } = lastTitleToken(text)
+  if (!token) {
+    const pad = text && !/\s$/.test(text) ? ' ' : ''
+    return `${text}${pad}${term}`
   }
-  return out
+  return `${before}${term}`
+}
+
+export function matchTitleHints(text: string, opts?: { limit?: number }): string[] {
+  const { token } = lastTitleToken(text)
+  if (token.length < 2) return []
+  const q = norm(token)
+  const limit = opts?.limit ?? 6
+  const prefix: string[] = []
+  const rest: string[] = []
+  for (const term of HELP_TERMS) {
+    const n = norm(term)
+    if (!n) continue
+    if (n === q) continue
+    if (q.startsWith(n) && q.length >= n.length) continue
+    if (n.startsWith(q)) {
+      prefix.push(term)
+      continue
+    }
+    if (q.length >= 4 && n.includes(q)) rest.push(term)
+  }
+  return [...prefix, ...rest].slice(0, limit)
 }

@@ -21,40 +21,78 @@ function Install-CoraxHelpdeskShortcut {
     $pc = [uri]::EscapeDataString($Hostname.Trim())
     $url = $base + '/h#pc=' + $pc
     $nl = "`r`n"
+    $icon = Join-Path $env:SystemRoot 'System32\imageres.dll'
+    if (-not (Test-Path $icon)) { $icon = Join-Path $env:SystemRoot 'System32\shell32.dll' }
+    $idx = 14
+    if ($icon -match 'imageres') { $idx = 81 }
     $body = '[InternetShortcut]' + $nl + 'URL=' + $url + $nl
-    $name = 'Заявка CORAX.url'
+    if (Test-Path $icon) {
+        $body = $body + 'IconFile=' + $icon + $nl + 'IconIndex=' + $idx + $nl
+    }
+    $names = @('Заявка в IT.lnk', 'Заявка CORAX.lnk', 'CORAX-ticket.lnk', 'Заявка в IT.url', 'Заявка CORAX.url', 'CORAX-ticket.url')
     $dirs = @()
-    try { $pub = [Environment]::GetFolderPath('CommonDesktopDirectory'); if ($pub) { $dirs += $pub } } catch { }
+    try { $pub = [Environment]::GetFolderPath('CommonDesktopDirectory'); if ($pub -and (Test-Path $pub)) { $dirs += $pub } } catch { }
+    try { $userDesk = [Environment]::GetFolderPath('Desktop'); if ($userDesk -and (Test-Path $userDesk)) { $dirs += $userDesk } } catch { }
+    if ($env:USERPROFILE) {
+        $d1 = Join-Path $env:USERPROFILE 'Desktop'
+        if (Test-Path $d1) { $dirs += $d1 }
+        $d2 = Join-Path $env:USERPROFILE 'OneDrive\Desktop'
+        if (Test-Path $d2) { $dirs += $d2 }
+    }
     $who = [string]$env:USERNAME
     $isSvc = $false
     if ($who -eq 'SYSTEM' -or $who -eq 'LOCAL SERVICE' -or $who -eq 'NETWORK SERVICE') { $isSvc = $true }
-    if (-not $isSvc) {
-        try { $userDesk = [Environment]::GetFolderPath('Desktop'); if ($userDesk) { $dirs += $userDesk } } catch { }
-    } else {
+    if ($isSvc) {
         $usersRoot = 'C:\Users'
         try { if ($env:PUBLIC) { $usersRoot = Split-Path -Parent $env:PUBLIC } } catch { }
         try {
             Get-ChildItem -Path $usersRoot -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer } | ForEach-Object {
-                $skip = $false
                 $n = $_.Name
-                if ($n -eq 'Public' -or $n -eq 'Default' -or $n -eq 'Default User' -or $n -eq 'All Users') { $skip = $true }
-                if (-not $skip) {
-                    $d = Join-Path $_.FullName 'Desktop'
-                    if (Test-Path $d) { $dirs += $d }
-                }
+                if ($n -eq 'Public' -or $n -eq 'Default' -or $n -eq 'Default User' -or $n -eq 'All Users') { return }
+                $d = Join-Path $_.FullName 'Desktop'
+                if (Test-Path $d) { $dirs += $d }
             }
         } catch { }
     }
-    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $explorer = Join-Path $env:SystemRoot 'explorer.exe'
+    $unicode = [System.Text.Encoding]::Unicode
     $written = 0
+    $seen = @{}
     foreach ($d in $dirs) {
-        try {
+        if ($seen.ContainsKey($d)) { continue }
+        $seen[$d] = $true
+        foreach ($name in $names) {
             $path = Join-Path $d $name
-            [System.IO.File]::WriteAllText($path, $body, $utf8)
-            $written++
-        } catch { }
+            $ok = $false
+            try {
+                $w = New-Object -ComObject WScript.Shell
+                $sc = $w.CreateShortcut($path)
+                if ($name -match '\.lnk$') {
+                    $sc.TargetPath = $explorer
+                    $sc.Arguments = $url
+                    $sc.WindowStyle = 1
+                } else {
+                    $sc.TargetPath = $url
+                }
+                if (Test-Path $icon) { $sc.IconLocation = $icon + ',' + $idx }
+                $sc.Save()
+                if (Test-Path $path) { $ok = $true }
+            } catch { }
+            if (-not $ok -and $name -match '\.url$') {
+                try {
+                    [System.IO.File]::WriteAllText($path, $body, $unicode)
+                    if (Test-Path $path) { $ok = $true }
+                } catch { }
+            }
+            if ($ok) {
+                $written = $written + 1
+                Log ("Helpdesk shortcut: " + $path)
+                break
+            }
+        }
     }
-    if ($written -gt 0) { Log ("Helpdesk shortcut: " + $url + " (" + $written + ")") }
+    if ($written -gt 0) { Log ("Helpdesk shortcut OK: " + $url + " (" + $written + ")") }
+    else { Log ("WARN: helpdesk shortcut was not created for " + $url) }
 }
 
 function Get-QueueFilePath {
@@ -587,6 +625,8 @@ if (-not $base -or $base.Trim().Length -eq 0) {
 }
 $base = $base.TrimEnd('/')
 $token = $env:AGENT_TOKEN
+
+try { Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $env:COMPUTERNAME } catch { }
 
 # Candidates: ports from URL (e.g. 3250 for docker 3250:3001), then 3001, 3000; paths /api/v1/agent/inventory or legacy
 $u = New-Object System.Uri($base)

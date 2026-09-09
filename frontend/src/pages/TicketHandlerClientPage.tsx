@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, type TicketHandlerIntakeResult, type TicketHandlerPublicContext } from '../api'
 import { CoraxLogo } from '../components/CoraxLogo'
-import { matchTitleHints } from '../lib/titleKeywordHints'
+import { helpGreeting } from '../lib/helpGreeting'
+import { applyTitleCompletion, lastTitleToken, matchTitleHints } from '../lib/titleKeywordHints'
 
 function hashParams() {
   return new URLSearchParams(window.location.hash.replace(/^#/, ''))
@@ -34,28 +35,6 @@ function shortPcName(name: string) {
   return raw.split('.')[0]
 }
 
-function InfoChip({ label, value, waiting }: { label: string; value: string; waiting?: boolean }) {
-  return (
-    <span className={`help-info ${waiting ? 'is-wait' : ''}`}>
-      <span className="help-info-k">{label}</span>
-      <span className="help-info-v">
-        {waiting ? (
-          <>
-            <span className="help-dots" aria-hidden>
-              <i />
-              <i />
-              <i />
-            </span>
-            {value}
-          </>
-        ) : (
-          value
-        )}
-      </span>
-    </span>
-  )
-}
-
 export function TicketHandlerClientPage() {
   const params = useMemo(() => hashParams(), [])
   const hintedHost = params.get('pc')?.trim() ?? ''
@@ -68,6 +47,7 @@ export function TicketHandlerClientPage() {
   const [titleDraft, setTitleDraft] = useState('')
   const [detecting, setDetecting] = useState(true)
   const titleHints = useMemo(() => matchTitleHints(titleDraft), [titleDraft])
+  const typedToken = lastTitleToken(titleDraft).token
 
   useEffect(() => {
     let cancelled = false
@@ -112,6 +92,10 @@ export function TicketHandlerClientPage() {
     }
   }
 
+  function applyHint(hint: string) {
+    setTitleDraft((prev) => applyTitleCompletion(prev, hint))
+  }
+
   const ticketLabel =
     result?.ticket_no != null
       ? `№${result.ticket_no}`
@@ -123,7 +107,7 @@ export function TicketHandlerClientPage() {
   const pcName = shortPcName(context?.hostname || hintedHost)
   const place = (context?.location || '').trim()
   const blocked = Boolean(error && !context)
-  const showChips = detecting || Boolean(pcName || person || place)
+  const hello = helpGreeting(person)
 
   return (
     <main className="help-page">
@@ -135,17 +119,21 @@ export function TicketHandlerClientPage() {
       <section className="help-card">
         <header className="help-card-head">
           <div className="help-brand">
-            <CoraxLogo variant="bird" animated alt="" className="help-bird" />
             <CoraxLogo variant="wordmark" alt="Corax" className="help-wordmark" />
           </div>
-          <h1 className="help-title">Опишите проблему</h1>
-          {showChips ? (
-            <div className="help-info-row" aria-live="polite">
-              {pcName ? <InfoChip label="ПК" value={pcName} /> : null}
-              {!pcName && detecting ? <InfoChip label="ПК" value="определяем" waiting /> : null}
-              {person ? <InfoChip label="Кто" value={person} /> : null}
-              {place ? <InfoChip label="Где" value={place} /> : null}
-            </div>
+          <p className="help-hello">{hello}</p>
+          <h1 className="help-title">Чем помочь?</h1>
+          <p className="help-lead">
+            Пишите как есть. Начните слово — подставим его целиком: картридж, Outlook, VPN. Tab или клик.
+          </p>
+          {detecting && !pcName ? (
+            <p className="help-device is-wait">Уточняем, с какого компьютера заявка…</p>
+          ) : null}
+          {pcName ? (
+            <p className="help-device">
+              Заявка уйдёт с компьютера <strong>{pcName}</strong>
+              {place ? <span> · {place}</span> : null}
+            </p>
           ) : null}
         </header>
 
@@ -176,6 +164,7 @@ export function TicketHandlerClientPage() {
               {result.requester_name ? (
                 <p className="help-success-meta">Обращение от {displayName(result.requester_name)}</p>
               ) : null}
+              {pcName ? <p className="help-success-meta">Компьютер {pcName}</p> : null}
               <button
                 type="button"
                 className="help-btn-ghost"
@@ -199,26 +188,45 @@ export function TicketHandlerClientPage() {
               ) : null}
 
               <label className="help-field">
-                <span className="sr-only">Кратко, что случилось</span>
+                <span>Что случилось</span>
                 <input
                   required
                   minLength={3}
                   name="title"
                   value={titleDraft}
                   onChange={(e) => setTitleDraft(e.target.value)}
-                  placeholder="Например: не открывается почта"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Tab' || titleHints.length < 1) return
+                    e.preventDefault()
+                    applyHint(titleHints[0])
+                  }}
+                  placeholder="Например: поменять картридж в принтере"
                   autoComplete="off"
                   autoFocus
                 />
               </label>
 
               {titleHints.length > 0 ? (
-                <div className="help-hints">
-                  {titleHints.map((hint) => (
-                    <button key={hint} type="button" className="help-hint" onClick={() => setTitleDraft(hint)}>
-                      {hint}
-                    </button>
-                  ))}
+                <div className="help-hints" role="list">
+                  <span className="help-hints-label">Tab — подставить слово</span>
+                  {titleHints.map((hint) => {
+                    const q = typedToken
+                    const lower = hint.toLocaleLowerCase('ru')
+                    const qLower = q.toLocaleLowerCase('ru')
+                    const splitAt = lower.startsWith(qLower) ? q.length : 0
+                    return (
+                      <button key={hint} type="button" className="help-hint" onClick={() => applyHint(hint)}>
+                        {splitAt > 0 ? (
+                          <>
+                            <span className="help-hint-typed">{hint.slice(0, splitAt)}</span>
+                            {hint.slice(splitAt)}
+                          </>
+                        ) : (
+                          hint
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               ) : null}
 
@@ -228,7 +236,7 @@ export function TicketHandlerClientPage() {
                 </span>
                 <textarea
                   name="description"
-                  placeholder="Что происходит, когда началось и что уже пробовали"
+                  placeholder="Когда началось, что уже пробовали, номер кабинета"
                   rows={4}
                 />
               </label>

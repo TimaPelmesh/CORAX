@@ -19,10 +19,14 @@ backend\.env или run.py). Распакуйте этот ZIP в ОТДЕЛЬН
 -------------
 1. agent_env.bat уже содержит URL сервера и токен. Не публикуйте его.
 2. Двойной клик corax_send.bat  (или: corax_send.bat nopause)
-3. Расписание: install_schedule.bat от администратора (если есть в ZIP)
+   Splash-анимация по умолчанию ВЫКЛЮЧЕНА: старая «матрица» роняла окно cmd
+   (и из-под админа тоже). Включить: set CORAX_SPLASH=1
+3. На рабочем столе появится ярлык «Заявка CORAX» (или CORAX-ticket.url):
+   {INVENTORY_SERVER}/h#pc=ИМЯ-ЭТОГО-ПК
+4. Расписание: install_schedule.bat от администратора (если есть в ZIP)
    или register_scheduled_task.ps1
    Задача CORAX-Agent всегда стартует корневой corax_send.bat.
-4. URL сервера — LAN-адрес панели, не 127.0.0.1 и не Docker 172.x.
+5. URL сервера — LAN-адрес панели, не 127.0.0.1 и не Docker 172.x.
 
 Что внутри
 ----------

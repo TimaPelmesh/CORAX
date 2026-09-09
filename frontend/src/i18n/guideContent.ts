@@ -26,11 +26,11 @@ const GUIDE_RU: GuideCopy = {
   eyebrow: 'CORAX',
   title: 'Руководство',
   subtitle:
-    'Где что лежит в панели. Агенты Windows и Linux — отдельные разделы ниже; то же на GitHub: docs/agents.md.',
+    'Где что лежит в панели. Агенты Windows и Linux — отдельные разделы ниже.',
   toc: 'Разделы',
   tip: 'Совет',
   tipBody:
-    'Сервер — одна команда: npm run docker:up (GETTING_STARTED). Обновлять с GitHub не обязательно. Агенты: разделы ниже и docs/agents.md.',
+    'Сервер поднимается одной командой: npm run docker:up. Сборка агента — только с панели по LAN-IP, не с 127.0.0.1.',
   searchPlaceholder: 'Найти раздел или шаг…',
   searchEmpty: 'Ничего не найдено. Попробуйте другое слово.',
   openLabel: 'Открыть',
@@ -72,6 +72,22 @@ const GUIDE_RU: GuideCopy = {
       links: [{ to: '/', label: 'Дашборд' }],
     },
     {
+      id: 'risks',
+      title: 'Центр рисков',
+      summary: 'Здоровье парка: антивирус, диски, обновления Windows.',
+      steps: [
+        {
+          title: 'Что смотреть',
+          body: 'Сводка по уровню риска и открытым проблемам. Подтверждение и игнор относятся к типу проблемы во всём парке, не к одному ПК.',
+        },
+        {
+          title: 'ИИ-инсайты',
+          body: 'Редактор может запросить комментарий локальной модели по рассчитанной сводке — без выдуманных уязвимостей.',
+        },
+      ],
+      links: [{ to: '/risks', label: 'Центр рисков' }],
+    },
+    {
       id: 'computers',
       title: 'Компьютеры',
       summary: 'Парк ПК: список, карточка, теги, пробуждение.',
@@ -103,7 +119,7 @@ const GUIDE_RU: GuideCopy = {
       id: 'agent',
       title: 'Агент инвентаризации',
       summary:
-        'ПК сами не появляются в панели. Их присылает агент. Сборка только с панели по LAN-IP. Windows: EXE или один ZIP на 7/10/11.',
+        'ПК сами не появляются в панели. Их присылает агент. Сборка только с панели по LAN-IP. Windows: канонический пакет — ZIP PowerShell (7/10/11). EXE пока не 1:1 с PowerShell.',
       steps: [
         {
           title: 'Зачем агент',
@@ -111,11 +127,11 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'Три пакета на панели',
-          body: 'Настройки → Сборка агента.\n• EXE C++ (рекомендуется) — один файл CORAX-Agent-*.exe, сам определяет Win7 / 10 / 11.\n• ZIP Windows (7 / 10 / 11) — один архив corax-agent-windows-*.zip. Запускайте корневой corax_send.bat: он смотрит версию PowerShell (5+ → win10\\, иначе win7\\).\n• ZIP Linux (bash) — отдельный раздел «Linux-агент» ниже.\nВкладки «отдельный Win7» больше нет.',
+          body: 'Настройки → Сборка агента.\n• ZIP PowerShell Windows (рекомендуется) — один архив на 7/10/11; запускайте корневой corax_send.bat. После отправки на рабочем столе появляется ярлык заявки /h#pc=ИМЯ-ПК.\n• Нативный EXE — состав инвентаря пока не 1:1 с PowerShell, для продакшена не основной.\n• ZIP Linux (bash) — отдельный раздел ниже.',
         },
         {
           title: 'Перед сборкой — LAN-IP',
-          body: 'Откройте панель по адресу http://192.168.x.x:3000, не через 127.0.0.1 и не через Docker 172.x. Иначе в пакет попадёт адрес, недоступный с чужих ПК.\nВ backend/.env на сервере:\nCORAX_ADVERTISE_HOST=192.168.x.x\nCORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://192.168.x.x:3000\nПосле правки: npm run docker:restart. Схему http/https на странице сборки сверьте с режимом HTTPS сервера; порт обычно 3000.',
+          body: 'Откройте панель по адресу http://192.168.x.x:3000, не через 127.0.0.1 и не через Docker 172.x. Иначе в пакет попадёт адрес, недоступный с чужих ПК. Схему http/https на странице сборки сверьте с режимом HTTPS сервера; порт обычно 3000.',
         },
         {
           title: 'Сборка',
@@ -130,8 +146,8 @@ const GUIDE_RU: GuideCopy = {
           body: 'Не запускайте скрипты из дерева сервера CORAX: рядом с docker-compose.yml, backend\\.env, run.py или из /opt/corax/agent/…. Там плейсхолдеры __INVENTORY_SERVER__, отчёт уходит «в никуда», на проде кажется, что «всё упало».\nWindows: распакуйте ZIP в %ProgramData%\\CORAX\\agent или на шару \\\\fileserver\\corax\\agent.\nLinux: только /opt/corax-agent (сервер остаётся в /opt/corax).',
         },
         {
-          title: 'EXE C++',
-          body: 'Скачайте EXE с панели. На ПК — двойной клик: splash и отправка. Для планировщика: CORAX-Agent.exe --silent (ежедневно или еженедельно). После смены HTTP↔HTTPS на сервере скачайте EXE заново — старый пакет ходит не на ту схему.',
+          title: 'EXE C++ (не основной)',
+          body: 'Состав полей пока не совпадает с PowerShell-агентом. Если всё же нужен EXE: двойной клик, для планировщика CORAX-Agent.exe --silent. После смены HTTP↔HTTPS скачайте пакет заново.',
         },
         {
           title: 'ZIP Windows — что внутри',
@@ -139,7 +155,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'ZIP Windows — первый запуск',
-          body: 'Распакуйте архив в %ProgramData%\\CORAX\\agent (не в каталог сервера).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nДля планировщика без паузы: corax_send.bat nopause\nПроверка: раздел «Компьютеры» — появился hostname, обновилось «последний отчёт».',
+          body: 'Распакуйте архив в %ProgramData%\\CORAX\\agent (не в каталог сервера).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nОкно не должно закрываться само: splash-анимация выключена (CORAX_SPLASH=1 только если нужна).\nНа рабочем столе появится ярлык «Заявка CORAX» (или CORAX-ticket) на http://СЕРВЕР:3000/h#pc=ИМЯ-ПК.\nДля планировщика: corax_send.bat nopause\nПроверка: «Компьютеры» — hostname и «последний отчёт».',
         },
         {
           title: 'ZIP Windows — расписание',
@@ -159,7 +175,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'Типичные ошибки (Windows)',
-          body: 'Запуск из git сервера → отказ / плейсхолдер. Кладите ZIP в %ProgramData%\\CORAX\\agent.\nURL 127.0.0.1 или 172.17–24.x → отчёт не доходит. Собирайте, открыв панель по LAN-IP.\nunzip поверх живой папки → пропал токен. Только update_scripts.bat.\nСменили HTTP↔HTTPS, старый пакет → новая сборка с панели.\nНет сети до :3000 → с ПК: curl http://<LAN-IP>:3000/api/v1/health/ready',
+          body: 'Запуск из git сервера → отчёт никуда не уходит. Кладите ZIP в %ProgramData%\\CORAX\\agent.\nURL 127.0.0.1 или Docker 172.x → собирайте, открыв панель по LAN-IP.\nРаспаковка нового ZIP поверх живой папки → пропал токен. Только update_scripts.bat.\nОкно cmd пропало на «анимации» → старый splash. Обновите ZIP с панели (splash больше не запускается).\nСменили HTTP↔HTTPS — скачайте пакет заново.',
         },
       ],
       links: [
@@ -176,7 +192,7 @@ const GUIDE_RU: GuideCopy = {
       steps: [
         {
           title: 'Два каталога — не путать',
-          body: '/opt/corax — СЕРВЕР: git, Docker, backend/.env. Агент отсюда не запускать (в том числе не из /opt/corax/agent/linux).\n/opt/corax-agent — только содержимое ZIP с панели. Сюда распаковывать и запускать.\nНа проде уже ломалось: запуск из дерева сервера → POST на __INVENTORY_SERVER__, HTTP 000, казалось что «env/сервис сдох». Агент .env сервера не трогает. Поднимайте Docker: cd /opt/corax && docker compose up -d',
+          body: '/opt/corax — сервер (git, Docker). Агент отсюда не запускать.\n/opt/corax-agent — только ZIP с панели. Сюда распаковывать и запускать.',
         },
         {
           title: 'Первый запуск',
@@ -200,7 +216,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'Типичные ошибки (Linux)',
-          body: 'Запуск из /opt/corax/agent/linux → HTTP 000, плейсхолдер. ZIP в /opt/corax-agent.\nunzip -o поверх живого агента → пропал токен. Только update_scripts.sh.\nURL 127.0.0.1 → отчёт не доходит с других хостов. Собирайте по LAN-IP.\n«Сервер не отвечает» — смотрите Docker (docker compose --env-file backend/.env logs app), не правьте .env вслепую.\nФайлы agent/linux в git: git checkout -- agent/linux или новый ZIP с панели.',
+          body: 'Запуск из /opt/corax/agent/linux — неверно. ZIP только в /opt/corax-agent.\nunzip -o поверх живого агента затирает токен — пользуйтесь update_scripts.sh.\nURL 127.0.0.1 с других хостов не доходит. Собирайте по LAN-IP.',
         },
       ],
       links: [
@@ -247,23 +263,19 @@ const GUIDE_RU: GuideCopy = {
     {
       id: 'network',
       title: 'Сеть',
-      summary: 'Коммутаторы, роутеры, точки доступа и ПК в LAN.',
+      summary: 'Список устройств в LAN, опрос SNMP и карта связей.',
       steps: [
         {
-          title: 'Скан',
-          body: '«Сканировать» — SNMP + ping по авто-подсетям CORAX (или ручным CIDR). В результат попадают сетевое оборудование и ПК.',
+          title: 'Список',
+          body: 'Страница открывается списком: коммутаторы, роутеры, AP, ПК. Фильтр по роли, ручное добавление, настройки SNMP.',
         },
         {
           title: 'Опрос',
-          body: '«Обнаружить и опросить» — глубже: интерфейсы, LLDP/CDP, FDB, уточнение типа (switch/AP/router).',
+          body: '«Опросить все» обновляет SNMP-статус уже известных устройств. Новые хосты появляются после опроса или ручного добавления.',
         },
         {
           title: 'Карта',
-          body: 'Вкладка карты — связи между устройствами. ПК на загруженных свичах можно свернуть в «пузырь».',
-        },
-        {
-          title: 'Типы',
-          body: 'Фильтр по роли: шлюз, DNS, коммутатор, AP, ПК… Тип можно поправить вручную в карточке устройства.',
+          body: 'Переключатель «Карта» показывает связи. ПК на загруженных свичах можно свернуть.',
         },
       ],
       links: [{ to: '/network', label: 'Сеть' }],
@@ -279,7 +291,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'База заявок',
-          body: 'Список со статусами: открыта / в работе / закрыта / отменена. Фильтры, поиск, массовые действия у редакторов.',
+          body: 'Список со статусами: открыта / в работе / закрыта / отменена. Фильтры и поиск. На странице можно показать 50, 100 или все заявки — без отдельного скролла внутри таблицы.',
         },
         {
           title: 'Шаблоны',
@@ -287,11 +299,11 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'Статистика',
-          body: 'Период, KPI, графики динамики. Цвета сдержанные: синим подсвечены просроченные.',
+          body: 'Период, KPI, динамика, нагрузка исполнителей. Есть автоматические инсайты по цифрам и отчёт локальной модели по сводке периода.',
         },
         {
           title: 'Уведомления',
-          body: 'Колокольчик в шапке — новые назначения на вас. Вкл/выкл в настройках профиля.',
+          body: 'Профиль в правом верхнем углу → Уведомления. Там же тема, настройки и выход.',
         },
         {
           title: 'Категории заявок',
@@ -376,7 +388,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'Чат',
-          body: 'Откройте «Чат AI» и задайте вопрос. Ответ строится только по найденному контексту; источники документов показываются под ответом.',
+          body: 'Страница Wiki / Ассистент — это сам чат. Ответ строится только по проиндексированным документам; источники показываются под ответом. База файлов открывается отдельной панелью знаний.',
         },
         {
           title: 'Модели',
@@ -409,10 +421,6 @@ const GUIDE_RU: GuideCopy = {
           title: 'Что ищет',
           body: 'ПК (hostname, IP, серийник), принтеры, заявки по тексту. Результаты сгруппированы по типу.',
         },
-        {
-          title: 'Индекс',
-          body: 'После массового импорта админ может пересобрать поисковый индекс (раздел БД / обслуживание).',
-        },
       ],
     },
     {
@@ -420,6 +428,10 @@ const GUIDE_RU: GuideCopy = {
       title: 'Администрирование',
       summary: 'Только для админов и редакторов (частично).',
       steps: [
+        {
+          title: 'Профиль',
+          body: 'Аватар в правом верхнем углу: смена темы, уведомления о назначениях, настройки интерфейса и выход. Блок «выйти» внизу бокового меню больше не используется.',
+        },
         {
           title: 'Пользователи',
           body: 'Локальные учётки панели, роли, привязка к человеку из LDAP-справочника для заявок.',
@@ -455,11 +467,11 @@ const GUIDE_EN: GuideCopy = {
   eyebrow: 'CORAX',
   title: 'Guide',
   subtitle:
-    'Where things live in the panel. Windows and Linux agents have their own sections below; the same runbook is docs/agents.md on GitHub.',
+    'Where things live in the panel. Windows and Linux agents have their own sections below.',
   toc: 'Sections',
   tip: 'Tip',
   tipBody:
-    'Server is one command: npm run docker:up (GETTING_STARTED). GitHub updates are optional. Agents: sections below and docs/agents.md.',
+    'Start the server with npm run docker:up. Build the agent from the panel on the LAN IP, not 127.0.0.1.',
   searchPlaceholder: 'Search a section or step…',
   searchEmpty: 'Nothing found. Try another word.',
   openLabel: 'Open',
@@ -501,6 +513,22 @@ const GUIDE_EN: GuideCopy = {
       links: [{ to: '/', label: 'Dashboard' }],
     },
     {
+      id: 'risks',
+      title: 'Risk center',
+      summary: 'Fleet health: antivirus, disks, Windows updates.',
+      steps: [
+        {
+          title: 'What to watch',
+          body: 'Risk levels and open problems. Acknowledge/ignore applies to the problem type across the fleet, not one PC.',
+        },
+        {
+          title: 'AI insights',
+          body: 'Editors can ask the local model to comment on the calculated summary — it must not invent vulnerabilities.',
+        },
+      ],
+      links: [{ to: '/risks', label: 'Risk center' }],
+    },
+    {
       id: 'computers',
       title: 'Computers',
       summary: 'Fleet list, PC card, tags, wake.',
@@ -532,7 +560,7 @@ const GUIDE_EN: GuideCopy = {
       id: 'agent',
       title: 'Inventory agent',
       summary:
-        'PCs do not appear by themselves. The agent reports them. Build only from the panel on the LAN IP. Windows: EXE or one ZIP for 7/10/11.',
+        'PCs do not appear by themselves. The agent reports them. Build only from the panel on the LAN IP. Windows: the canonical package is the PowerShell ZIP (7/10/11). EXE is not 1:1 with PowerShell yet.',
       steps: [
         {
           title: 'Why you need an agent',
@@ -540,11 +568,11 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'Three packages on the panel',
-          body: 'Settings → Agent build.\n• EXE C++ (recommended) — one CORAX-Agent-*.exe; detects Win7 / 10 / 11 itself.\n• ZIP Windows (7 / 10 / 11) — one corax-agent-windows-*.zip. Run the root corax_send.bat: PowerShell 5+ → win10\\, otherwise win7\\.\n• ZIP Linux (bash) — see “Linux agent” below.\nThere is no separate Win7 tab anymore.',
+          body: 'Settings → Agent build.\n• ZIP PowerShell Windows (recommended) — one archive for 7/10/11; run the root corax_send.bat. After send, a desktop shortcut opens /h#pc=HOSTNAME.\n• Native EXE — inventory is not 1:1 with PowerShell yet; not the production default.\n• ZIP Linux (bash) — see the Linux section below.',
         },
         {
           title: 'Before you build — LAN IP',
-          body: 'Open the panel at http://192.168.x.x:3000, not 127.0.0.1 and not Docker 172.x. Otherwise the bundle gets an address other PCs cannot reach.\nOn the server, backend/.env:\nCORAX_ADVERTISE_HOST=192.168.x.x\nCORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://192.168.x.x:3000\nThen: npm run docker:restart. Match http/https on the build page to the server HTTPS mode; port is usually 3000.',
+          body: 'Open the panel at http://192.168.x.x:3000, not 127.0.0.1 and not Docker 172.x. Otherwise the bundle gets an address other PCs cannot reach. Match http/https on the build page to the server HTTPS mode; port is usually 3000.',
         },
         {
           title: 'Build',
@@ -559,8 +587,8 @@ const GUIDE_EN: GuideCopy = {
           body: 'Do not run scripts from the CORAX server tree: next to docker-compose.yml, backend\\.env, run.py, or from /opt/corax/agent/…. Those copies have __INVENTORY_SERVER__ placeholders; reports go nowhere and production looks “down”.\nWindows: unpack the ZIP to %ProgramData%\\CORAX\\agent or a share \\\\fileserver\\corax\\agent.\nLinux: only /opt/corax-agent (the server stays in /opt/corax).',
         },
         {
-          title: 'EXE C++',
-          body: 'Download the EXE from the panel. On the PC — double-click: splash and send. For Task Scheduler: CORAX-Agent.exe --silent (daily or weekly). After switching HTTP↔HTTPS on the server, download a new EXE — the old bundle still uses the old scheme.',
+          title: 'EXE C++ (not the default)',
+          body: 'Field coverage is not yet 1:1 with the PowerShell agent. If you still need the EXE: double-click to send; Task Scheduler: CORAX-Agent.exe --silent. After switching HTTP↔HTTPS, download a fresh bundle.',
         },
         {
           title: 'ZIP Windows — contents',
@@ -568,7 +596,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'ZIP Windows — first run',
-          body: 'Unpack to %ProgramData%\\CORAX\\agent (not the server tree).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nFor the scheduler with no pause: corax_send.bat nopause\nCheck: Computers — hostname appears, “last report” refreshes.',
+          body: 'Unpack to %ProgramData%\\CORAX\\agent (not the server tree).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nThe window must stay open: splash animation is off (set CORAX_SPLASH=1 only if you want it).\nA “CORAX ticket” (or CORAX-ticket) shortcut appears on the desktop: http://SERVER:3000/h#pc=HOSTNAME.\nScheduler: corax_send.bat nopause\nCheck: Computers — hostname and “last report”.',
         },
         {
           title: 'ZIP Windows — schedule',
@@ -588,7 +616,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'Typical Windows mistakes',
-          body: 'Running from the server git tree → refusal / placeholder. Put the ZIP in %ProgramData%\\CORAX\\agent.\nURL 127.0.0.1 or 172.17–24.x → report never arrives. Build with the panel open on the LAN IP.\nUnzip over a live folder → token gone. Use update_scripts.bat only.\nSwitched HTTP↔HTTPS, old bundle → new build from the panel.\nNo network to :3000 → from the PC: curl http://<LAN-IP>:3000/api/v1/health/ready',
+          body: 'Running from the server git tree sends reports nowhere. Put the ZIP in %ProgramData%\\CORAX\\agent.\nURL 127.0.0.1 or Docker 172.x — build with the panel open on the LAN IP.\nExtracting a new ZIP over a live folder wipes the token. Use update_scripts.bat.\nCmd window vanished during the “animation” — old splash. Download a fresh ZIP (splash no longer runs).\nSwitched HTTP↔HTTPS — download a fresh bundle.',
         },
       ],
       links: [
@@ -605,7 +633,7 @@ const GUIDE_EN: GuideCopy = {
       steps: [
         {
           title: 'Two directories — do not mix them',
-          body: '/opt/corax — SERVER: git, Docker, backend/.env. Do not run the agent from here (including /opt/corax/agent/linux).\n/opt/corax-agent — ZIP from the panel only. Unpack and run here.\nThis already broke production: launch from the server tree → POST to __INVENTORY_SERVER__, HTTP 000, looked like “env/service died”. The agent does not touch the server .env. Bring Docker up: cd /opt/corax && docker compose up -d',
+          body: '/opt/corax — the server (git, Docker). Do not run the agent from here.\n/opt/corax-agent — ZIP from the panel only. Unpack and run here.',
         },
         {
           title: 'First run',
@@ -629,7 +657,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'Typical Linux mistakes',
-          body: 'Launch from /opt/corax/agent/linux → HTTP 000, placeholder. Put the ZIP in /opt/corax-agent.\nunzip -o over a live agent → token gone. Use update_scripts.sh only.\nURL 127.0.0.1 → reports never arrive from other hosts. Build on the LAN IP.\n“Server not responding” — check Docker (docker compose --env-file backend/.env logs app); do not edit .env blindly.\nGit files under agent/linux: git checkout -- agent/linux or a new panel ZIP.',
+          body: 'Launch from /opt/corax/agent/linux is wrong. Put the ZIP in /opt/corax-agent.\nunzip -o over a live agent wipes the token — use update_scripts.sh.\nURL 127.0.0.1 never reaches other hosts. Build on the LAN IP.',
         },
       ],
       links: [
@@ -676,23 +704,19 @@ const GUIDE_EN: GuideCopy = {
     {
       id: 'network',
       title: 'Network',
-      summary: 'Switches, routers, APs, and PCs on the LAN.',
+      summary: 'LAN device list, SNMP polling, and a topology map.',
       steps: [
         {
-          title: 'Scan',
-          body: 'Scan runs SNMP + ping on CORAX auto-scope (or manual CIDRs). Network gear and PCs are kept.',
+          title: 'List',
+          body: 'The page opens as a list: switches, routers, APs, PCs. Filter by role, add devices manually, configure SNMP.',
         },
         {
           title: 'Poll',
-          body: 'Discover and poll — interfaces, LLDP/CDP, FDB, better type detection.',
+          body: '“Poll all” refreshes SNMP status of known devices. New hosts appear after a poll or a manual add.',
         },
         {
           title: 'Map',
-          body: 'Map tab shows links. PCs on busy switches can collapse into bubbles.',
-        },
-        {
-          title: 'Types',
-          body: 'Filter by role; fix type manually on the device card if needed.',
+          body: 'The Map toggle shows links. PCs on busy switches can collapse.',
         },
       ],
       links: [{ to: '/network', label: 'Network' }],
@@ -708,7 +732,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'Ticket list',
-          body: 'Statuses: open / in progress / done / cancelled. Filters and search for editors.',
+          body: 'Statuses: open / in progress / done / cancelled. Filters and search. The list can show 50, 100, or all tickets — no nested table scrollbar.',
         },
         {
           title: 'Templates',
@@ -716,11 +740,11 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'Stats',
-          body: 'Period, KPIs, charts. Overdue is highlighted in blue.',
+          body: 'Period, KPIs, trend, assignee load. Automatic insights from the numbers plus a local-model report for the selected period.',
         },
         {
           title: 'Notifications',
-          body: 'Bell in the header for new assignments. Toggle in profile settings.',
+          body: 'Profile in the top-right → Notifications. Theme, settings, and logout live there too.',
         },
         {
           title: 'Ticket categories',
@@ -805,7 +829,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'Chat',
-          body: 'Open “AI chat” and ask a question. Answers use retrieved context only; document sources appear under the reply.',
+          body: 'Wiki / Assistant is the chat itself. Answers use indexed documents only; sources appear under the reply. The file library opens as a knowledge drawer.',
         },
         {
           title: 'Models',
@@ -838,10 +862,6 @@ const GUIDE_EN: GuideCopy = {
           title: 'Scope',
           body: 'PCs (hostname, IP, serial), printers, ticket text — grouped by type.',
         },
-        {
-          title: 'Index',
-          body: 'After bulk imports an admin may rebuild the search index.',
-        },
       ],
     },
     {
@@ -849,6 +869,10 @@ const GUIDE_EN: GuideCopy = {
       title: 'Administration',
       summary: 'Admins (and some editor settings).',
       steps: [
+        {
+          title: 'Profile',
+          body: 'Avatar in the top-right: theme, assignment notifications, interface settings, and logout. The old sidebar logout block is gone.',
+        },
         {
           title: 'Users',
           body: 'Local panel accounts, roles, link to LDAP directory person for tickets.',

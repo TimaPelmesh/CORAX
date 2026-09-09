@@ -11,31 +11,31 @@ import {
   type NotificationPrefs,
 } from '../lib/notificationPrefs'
 import { useToast } from '../ToastContext'
-import { IconBell, IconMoon, IconPcs, IconPrinter, IconSearch, IconSun, IconTicket } from './icons'
+import { IconBell, IconLogout, IconMoon, IconPcs, IconPrinter, IconSearch, IconSettings, IconSun, IconTicket } from './icons'
+import { UserPrefsPanel, type PrefsNavItem } from './UserPrefsPanel'
+import { UserAvatar } from './UserAvatar'
 
 type SearchHit =
   | { kind: 'computer'; id: number; title: string; subtitle: string; to: string }
   | { kind: 'printer'; id: number; title: string; subtitle: string; to: string }
   | { kind: 'request'; id: number; title: string; subtitle: string; to: string; row: ServiceRequestRow }
 
-function chromeBtnClass(active = false) {
-  return `chrome-glass-btn relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)] ${
-    active ? 'bg-[var(--color-surface)] text-[var(--color-fg)]' : ''
-  }`
-}
-
 function requestLabel(r: ServiceRequestRow): string {
   return r.ticket_no != null ? `#${r.ticket_no} · ${r.title}` : r.title
 }
 
-export function AppTopBar() {
+type AppTopBarProps = {
+  navItems?: PrefsNavItem[]
+}
+
+export function AppTopBar({ navItems = [] }: AppTopBarProps) {
   const { t } = useLocale()
-  const { user } = useAuth()
-  const { theme, toggleTheme } = useTheme()
+  const { user, logout } = useAuth()
+  const { theme, setTheme } = useTheme()
   const toast = useToast()
   const navigate = useNavigate()
   const searchWrapRef = useRef<HTMLDivElement>(null)
-  const notifyWrapRef = useRef<HTMLDivElement>(null)
+  const profileWrapRef = useRef<HTMLDivElement>(null)
   const knownIdsRef = useRef<Set<number> | null>(null)
   const prefsRef = useRef<NotificationPrefs>({ enabled: true, readIds: [] })
 
@@ -45,7 +45,8 @@ export function AppTopBar() {
   const [hits, setHits] = useState<SearchHit[]>([])
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const [notifyOpen, setNotifyOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [profileView, setProfileView] = useState<'menu' | 'notify' | 'settings'>('menu')
   const [assigned, setAssigned] = useState<ServiceRequestRow[]>([])
   const [notifyLoading, setNotifyLoading] = useState(false)
   const [notifyPrefs, setNotifyPrefs] = useState<NotificationPrefs>({ enabled: true, readIds: [] })
@@ -80,7 +81,10 @@ export function AppTopBar() {
     const onDoc = (e: MouseEvent) => {
       const target = e.target as Node
       if (searchWrapRef.current && !searchWrapRef.current.contains(target)) setSearchOpen(false)
-      if (notifyWrapRef.current && !notifyWrapRef.current.contains(target)) setNotifyOpen(false)
+      if (profileWrapRef.current && !profileWrapRef.current.contains(target)) {
+        setProfileOpen(false)
+        setProfileView('menu')
+      }
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
@@ -363,140 +367,259 @@ export function AppTopBar() {
         ) : null}
       </div>
 
-      <div className="flex min-w-0 items-center justify-end gap-2 sm:gap-3">
-      <button
-        type="button"
-        className={chromeBtnClass()}
-        onClick={(e) => {
-          const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
-          toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
-        }}
-        aria-label={theme === 'dark' ? t('prefs.themeLight') : t('prefs.themeDark')}
-        title={theme === 'dark' ? t('prefs.themeLight') : t('prefs.themeDark')}
-      >
-        {theme === 'dark' ? <IconSun className="h-[18px] w-[18px]" /> : <IconMoon className="h-[18px] w-[18px]" />}
-      </button>
-
-      <div ref={notifyWrapRef} className="relative">
+      <div ref={profileWrapRef} className="relative flex min-w-0 items-center justify-end">
         <button
           type="button"
-          className={`${chromeBtnClass(notifyOpen)} ${!notifyPrefs.enabled ? 'opacity-60' : ''}`}
-          onClick={() => setNotifyOpen((v) => !v)}
-          aria-label={t('chrome.notifications')}
-          title={
-            notifyPrefs.enabled
-              ? t('chrome.notifications')
-              : t('chrome.notificationsDisabled')
-          }
-          aria-expanded={notifyOpen}
+          className={`relative flex max-w-full items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] py-0.5 pl-0.5 pr-2.5 text-left transition hover:bg-[var(--color-surface-muted)] ${
+            profileOpen ? 'ring-2 ring-[var(--color-primary)]/25' : ''
+          }`}
+          onClick={() => {
+            setProfileOpen((v) => !v)
+            setProfileView('menu')
+          }}
+          aria-label={t('chrome.profileMenu')}
+          aria-expanded={profileOpen}
         >
-          <IconBell className="h-[18px] w-[18px]" />
-          {showDot ? (
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[var(--color-primary)] ring-2 ring-[var(--color-surface)]" />
-          ) : null}
+          <span className="relative">
+            <UserAvatar size="sm" src={user?.avatar_data} name={user?.full_name} username={user?.username} />
+            {showDot ? (
+              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[var(--color-primary)] ring-2 ring-[var(--color-surface)]" />
+            ) : null}
+          </span>
+          <span className="hidden min-w-0 sm:block">
+            <span className="block max-w-[9rem] truncate text-[13px] font-medium leading-tight text-[var(--color-fg)]">
+              {user?.full_name?.trim() || user?.username || t('chrome.profileMenu')}
+            </span>
+            <span className="block text-[10px] leading-tight text-[var(--color-fg-subtle)]">{t('chrome.profileMenuHint')}</span>
+          </span>
         </button>
-        {notifyOpen ? (
-          <div className="chrome-notify-card absolute right-0 top-[calc(100%+0.4rem)] z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl">
-            <div className="border-b border-[var(--color-border)] px-3.5 py-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[13px] font-semibold text-[var(--color-fg)]">{t('chrome.notifications')}</div>
-                <Link
-                  to="/requests/database"
-                  onClick={() => setNotifyOpen(false)}
-                  className="text-[11px] font-medium text-[var(--color-primary)] no-underline hover:underline"
-                >
-                  {t('chrome.notificationsAll')}
-                </Link>
-              </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-[var(--color-fg-muted)]">
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 rounded border-[var(--color-border)]"
-                    checked={notifyPrefs.enabled}
-                    onChange={(e) => {
-                      persistPrefs({ ...notifyPrefs, enabled: e.target.checked })
-                    }}
-                  />
-                  {t('chrome.notificationsEnabled')}
-                </label>
-                {notifyPrefs.enabled && unread.length > 0 ? (
-                  <button
-                    type="button"
-                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
-                    onClick={markAllRead}
-                  >
-                    {t('chrome.notificationsMarkRead')}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            <div className="app-scroll max-h-[min(20rem,55vh)] overflow-y-auto">
-              {!notifyPrefs.enabled ? (
-                <div className="border-b border-[var(--color-border)] px-3.5 py-2.5 text-[11px] text-[var(--color-fg-subtle)]">
-                  {t('chrome.notificationsOffHint')}
+        {profileOpen ? (
+          <div className="chrome-notify-card absolute right-0 top-[calc(100%+0.4rem)] z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl">
+            {profileView === 'menu' ? (
+              <div>
+                <div className="relative overflow-hidden px-3.5 pb-3 pt-3.5">
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-600/16 via-transparent to-sky-400/10" />
+                  <div className="relative flex items-center gap-3">
+                    <UserAvatar size="md" src={user?.avatar_data} name={user?.full_name} username={user?.username} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14px] font-semibold text-[var(--color-fg)]">
+                        {user?.full_name?.trim() || user?.username}
+                      </div>
+                      <div className="mt-1 inline-flex rounded-full bg-[var(--color-surface)]/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-fg-muted)] ring-1 ring-[var(--color-border)]">
+                        {user?.is_superuser ? t('roles.admin') : user?.role === 'editor' ? t('roles.editor') : t('roles.viewer')}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              ) : null}
-              {notifyLoading && assigned.length === 0 ? (
-                <div className="px-3.5 py-4 text-xs text-[var(--color-fg-subtle)]">{t('chrome.notificationsLoading')}</div>
-              ) : assigned.length === 0 ? (
-                <div className="px-3.5 py-4 text-xs text-[var(--color-fg-subtle)]">{t('chrome.notificationsEmpty')}</div>
-              ) : (
-                assigned.map((r) => {
-                  const isUnread = notifyPrefs.enabled && !notifyPrefs.readIds.includes(r.id)
-                  return (
-                    <div
-                      key={r.id}
-                      className={`flex gap-2.5 border-b border-[var(--color-border)] px-3.5 py-2.5 last:border-b-0 ${
-                        isUnread ? 'bg-[var(--color-primary-muted)]/35' : ''
+                <div className="px-3 pb-2">
+                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+                    {t('chrome.themeTitle')}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => setTheme('light', { x: e.clientX, y: e.clientY })}
+                      className={`rounded-xl p-2 text-left ring-1 transition ${
+                        theme === 'light'
+                          ? 'ring-[var(--color-primary)] bg-[var(--color-primary-muted)]/40'
+                          : 'ring-[var(--color-border)] hover:bg-[var(--color-surface-muted)]'
                       }`}
                     >
-                      <Link
-                        to="/requests/database"
-                        onClick={() => {
-                          if (notifyPrefs.enabled) markOneRead(r.id)
-                          setNotifyOpen(false)
+                      <div className="overflow-hidden rounded-lg border border-slate-200 bg-[#f4f6f8] p-1.5 shadow-sm">
+                        <div className="h-1.5 w-8 rounded-full bg-slate-300" />
+                        <div className="mt-1.5 h-7 rounded-md border border-slate-200 bg-white" />
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1 text-[12px] font-medium text-[var(--color-fg)]">
+                        <IconSun className="h-3.5 w-3.5" />
+                        {t('prefs.themeLight')}
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => setTheme('dark', { x: e.clientX, y: e.clientY })}
+                      className={`rounded-xl p-2 text-left ring-1 transition ${
+                        theme === 'dark'
+                          ? 'ring-[var(--color-primary)] bg-[var(--color-primary-muted)]/40'
+                          : 'ring-[var(--color-border)] hover:bg-[var(--color-surface-muted)]'
+                      }`}
+                    >
+                      <div className="overflow-hidden rounded-lg border border-slate-700 bg-[#0b1220] p-1.5 shadow-sm">
+                        <div className="h-1.5 w-8 rounded-full bg-slate-500" />
+                        <div className="mt-1.5 h-7 rounded-md border border-slate-700 bg-[#151d2c]" />
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1 text-[12px] font-medium text-[var(--color-fg)]">
+                        <IconMoon className="h-3.5 w-3.5" />
+                        {t('prefs.themeDark')}
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div className="p-1.5 pt-0">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]"
+                  onClick={() => setProfileView('notify')}
+                >
+                  <IconBell className="h-4 w-4" />
+                  <span className="flex-1">{t('chrome.notifications')}</span>
+                  {showDot ? (
+                    <span className="rounded-full bg-[var(--color-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {unread.length}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]"
+                  onClick={() => setProfileView('settings')}
+                >
+                  <IconSettings className="h-4 w-4" />
+                  <span>{t('prefs.open')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]"
+                  onClick={() => {
+                    void (async () => {
+                      await logout()
+                      window.location.href = '/login'
+                    })()
+                  }}
+                >
+                  <IconLogout className="h-4 w-4" />
+                  <span>{t('nav.logout')}</span>
+                </button>
+                </div>
+              </div>
+            ) : profileView === 'settings' ? (
+              <>
+                <div className="border-b border-[var(--color-border)] px-3.5 py-2.5">
+                  <button
+                    type="button"
+                    className="text-[12px] font-medium text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+                    onClick={() => setProfileView('menu')}
+                  >
+                    ← {t('chrome.profileMenu')}
+                  </button>
+                  <div className="mt-1 text-[13px] font-semibold text-[var(--color-fg)]">{t('prefs.title')}</div>
+                </div>
+                <UserPrefsPanel
+                  open
+                  embedded
+                  navItems={navItems}
+                  onClose={() => setProfileView('menu')}
+                />
+              </>
+            ) : (
+              <>
+                <div className="border-b border-[var(--color-border)] px-3.5 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      className="text-[12px] font-medium text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+                      onClick={() => setProfileView('menu')}
+                    >
+                      ← {t('chrome.profileMenu')}
+                    </button>
+                    <Link
+                      to="/requests/database"
+                      onClick={() => setProfileOpen(false)}
+                      className="text-[11px] font-medium text-[var(--color-primary)] no-underline hover:underline"
+                    >
+                      {t('chrome.notificationsAll')}
+                    </Link>
+                  </div>
+                  <div className="mt-2 text-[13px] font-semibold text-[var(--color-fg)]">{t('chrome.notifications')}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-[var(--color-fg-muted)]">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-[var(--color-border)]"
+                        checked={notifyPrefs.enabled}
+                        onChange={(e) => {
+                          persistPrefs({ ...notifyPrefs, enabled: e.target.checked })
                         }}
-                        className="flex min-w-0 flex-1 gap-2.5 text-[var(--color-fg)] no-underline hover:opacity-90"
+                      />
+                      {t('chrome.notificationsEnabled')}
+                    </label>
+                    {notifyPrefs.enabled && unread.length > 0 ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
+                        onClick={markAllRead}
                       >
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary-muted)] text-[var(--color-primary)]">
-                          <IconTicket className="h-3.5 w-3.5" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1.5">
-                            {isUnread ? (
-                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
-                            ) : null}
-                            <span className="block truncate text-[13px] font-medium">{requestLabel(r)}</span>
-                          </span>
-                          <span className="mt-0.5 block truncate text-[11px] text-[var(--color-fg-subtle)]">
-                            {[
-                              r.status === 'in_progress' ? t('chrome.statusInProgress') : t('chrome.statusOpen'),
-                              r.computer_hostname,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </span>
-                        </span>
-                      </Link>
-                      {isUnread ? (
-                        <button
-                          type="button"
-                          className="shrink-0 self-center rounded-md px-1.5 py-1 text-[10px] font-semibold text-[var(--color-primary)] hover:bg-[var(--color-surface)]"
-                          onClick={() => markOneRead(r.id)}
-                          title={t('chrome.notificationsMarkOne')}
-                        >
-                          {t('chrome.notificationsMarkOne')}
-                        </button>
-                      ) : null}
+                        {t('chrome.notificationsMarkRead')}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="app-scroll max-h-[min(20rem,55vh)] overflow-y-auto">
+                  {!notifyPrefs.enabled ? (
+                    <div className="border-b border-[var(--color-border)] px-3.5 py-2.5 text-[11px] text-[var(--color-fg-subtle)]">
+                      {t('chrome.notificationsOffHint')}
                     </div>
-                  )
-                })
-              )}
-            </div>
+                  ) : null}
+                  {notifyLoading && assigned.length === 0 ? (
+                    <div className="px-3.5 py-4 text-xs text-[var(--color-fg-subtle)]">{t('chrome.notificationsLoading')}</div>
+                  ) : assigned.length === 0 ? (
+                    <div className="px-3.5 py-4 text-xs text-[var(--color-fg-subtle)]">{t('chrome.notificationsEmpty')}</div>
+                  ) : (
+                    assigned.map((r) => {
+                      const isUnread = notifyPrefs.enabled && !notifyPrefs.readIds.includes(r.id)
+                      return (
+                        <div
+                          key={r.id}
+                          className={`flex gap-2.5 border-b border-[var(--color-border)] px-3.5 py-2.5 last:border-b-0 ${
+                            isUnread ? 'bg-[var(--color-primary-muted)]/35' : ''
+                          }`}
+                        >
+                          <Link
+                            to="/requests/database"
+                            onClick={() => {
+                              if (notifyPrefs.enabled) markOneRead(r.id)
+                              setProfileOpen(false)
+                            }}
+                            className="flex min-w-0 flex-1 gap-2.5 text-[var(--color-fg)] no-underline hover:opacity-90"
+                          >
+                            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary-muted)] text-[var(--color-primary)]">
+                              <IconTicket className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1.5">
+                                {isUnread ? (
+                                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                                ) : null}
+                                <span className="block truncate text-[13px] font-medium">{requestLabel(r)}</span>
+                              </span>
+                              <span className="mt-0.5 block truncate text-[11px] text-[var(--color-fg-subtle)]">
+                                {[
+                                  r.status === 'in_progress' ? t('chrome.statusInProgress') : t('chrome.statusOpen'),
+                                  r.computer_hostname,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </span>
+                            </span>
+                          </Link>
+                          {isUnread ? (
+                            <button
+                              type="button"
+                              className="shrink-0 self-center rounded-md px-1.5 py-1 text-[10px] font-semibold text-[var(--color-primary)] hover:bg-[var(--color-surface)]"
+                              onClick={() => markOneRead(r.id)}
+                              title={t('chrome.notificationsMarkOne')}
+                            >
+                              {t('chrome.notificationsMarkOne')}
+                            </button>
+                          ) : null}
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </>
+            )}
           </div>
         ) : null}
-      </div>
       </div>
     </div>
   )

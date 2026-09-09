@@ -129,7 +129,7 @@ export function NetworkPage() {
   const { user } = useAuth()
   const canEdit = Boolean(user?.is_superuser || user?.role === 'editor')
 
-  const [view, setView] = useState<ViewMode>('map')
+  const [view, setView] = useState<ViewMode>('list')
   const [rows, setRows] = useState<NetworkDevice[]>([])
   const [topo, setTopo] = useState<NetworkTopology | null>(null)
   const [loading, setLoading] = useState(true)

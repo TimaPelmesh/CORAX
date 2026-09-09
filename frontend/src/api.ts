@@ -29,7 +29,11 @@ const WIKIRAG_LM_TIMEOUT_MS = 330_000
 const WIKIRAG_IMPORT_TIMEOUT_MS = 120_000
 
 function requestTimeoutMessage(path: string): string {
-  if (path.includes('/wiki-rag/chat') || path.includes('/risks/ai-insights')) {
+  if (
+    path.includes('/wiki-rag/chat') ||
+    path.includes('/risks/ai-insights') ||
+    path.includes('/service-requests/ai-insights')
+  ) {
     return (
       'Модель не ответила вовремя (лимит ~5 мин). Проверьте LM Studio / Ollama: модель загружена, ' +
       'таймаут увеличен; для лёгких моделей ответ обычно 30–90 с.'
@@ -2116,6 +2120,25 @@ export const api = {
     )
   },
 
+  serviceRequestsAll: async (opts?: { status?: string }) => {
+    const page = 1000
+    const items: ServiceRequestRow[] = []
+    let skip = 0
+    let total = 0
+    for (let n = 0; n < 40; n += 1) {
+      const r = await api.serviceRequests({
+        status: opts?.status,
+        limit: page,
+        skip,
+      })
+      total = r.total
+      items.push(...r.items)
+      skip += r.items.length
+      if (r.items.length === 0 || skip >= total) break
+    }
+    return { items, total }
+  },
+
   createServiceRequest: (body: {
     title: string
     description?: string | null
@@ -2148,6 +2171,19 @@ export const api = {
       closed_at?: string | null
     },
   ) => request<ServiceRequestRow>(`${API_PREFIX}/service-requests/${id}`, { method: 'PATCH', json: body }),
+
+  serviceRequestAiInsights: (body: {
+    base_url?: string
+    model?: string
+    response_mode?: 'fast' | 'detailed'
+    force?: boolean
+    summary?: Record<string, unknown>
+  }) =>
+    request<RiskAiInsight>(`${API_PREFIX}/service-requests/ai-insights`, {
+      method: 'POST',
+      json: body,
+      timeout_ms: WIKIRAG_LM_TIMEOUT_MS,
+    }),
 
   suggestServiceRequestAi: (id: number, opts?: { persist?: boolean }) => {
     const persist = opts?.persist !== false

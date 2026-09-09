@@ -1,6 +1,7 @@
 import type { PrefsNavItem } from '../UserPrefsPanel'
 import {
   IconActivity,
+  IconAssistant,
   IconBook,
   IconDashboard,
   IconDisk,
@@ -156,7 +157,7 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
         },
         {
           to: '/knowledge-base/wikirag',
-          icon: IconBook,
+          icon: IconAssistant,
           labelKey: 'nav.wikirag',
           keywords: ['wikirag', 'wiki', 'lm', 'rag', 'чат', 'chat'],
         },

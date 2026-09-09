@@ -1,8 +1,12 @@
 from io import BytesIO
-from datetime import datetime
+import hashlib
+import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +23,10 @@ from app.models import (
     service_request_assignees,
     service_request_template_assignees,
 )
+from app.rate_limit import limiter
 from app.schemas import (
+    ServiceRequestAiInsight,
+    ServiceRequestAiInsightsRequest,
     ServiceRequestAiSuggestOut,
     ServiceRequestCreate,
     ServiceRequestListResponse,
@@ -30,10 +37,47 @@ from app.schemas import (
     ServiceRequestTemplateOut,
     ServiceRequestTemplatePatch,
 )
+from app.wikirag_lm import (
+    ensure_model_num_ctx,
+    is_bad_lm_answer,
+    lm_studio_chat,
+    normalize_lm_base_url,
+    _sanitize_model_output,
+)
 from app.service_request_tickets import ensure_ticket_no, is_service_request_closed, stamp_closed_at_if_needed
 from app.search_index import delete_search_document, index_service_request
 
 router = APIRouter(prefix="/service-requests", tags=["service-requests"])
+
+_AI_CACHE_SECONDS = 600.0
+_AI_CACHE: dict[str, tuple[float, ServiceRequestAiInsight]] = {}
+_AI_SUMMARY_KEYS = (
+    "period",
+    "total",
+    "done",
+    "cancelled",
+    "active",
+    "overdue",
+    "overdue_rate",
+    "completion_rate",
+    "sla_hit_rate",
+    "avg_close_hours",
+    "median_close_hours",
+    "high_share",
+    "per_day",
+    "top_category",
+    "top_assignee",
+    "trend",
+)
+
+
+def _compact_ticket_summary(raw: dict[str, Any] | None) -> dict[str, Any]:
+    src = raw or {}
+    out: dict[str, Any] = {key: src[key] for key in _AI_SUMMARY_KEYS if key in src}
+    trend = out.get("trend")
+    if isinstance(trend, list):
+        out["trend"] = trend[-14:]
+    return out
 
 _GLPI_HEADERS = [
     "ID",
@@ -166,7 +210,7 @@ async def list_service_requests(
     db: AsyncSession = Depends(get_db),
     status: str | None = Query(None),
     skip: int = Query(0, ge=0, le=1_000_000),
-    limit: int = Query(200, ge=1, le=1000),
+    limit: int = Query(200, ge=1, le=10000),
 ):
     stmt = select(ServiceRequest).order_by(ServiceRequest.id.desc())
     if status:
@@ -212,6 +256,71 @@ async def create_service_request(
     await db.commit()
     await db.refresh(row)
     return await _to_out(db, row)
+
+
+@router.post("/ai-insights", response_model=ServiceRequestAiInsight)
+@limiter.limit("10/hour")
+async def service_request_ai_insights(
+    request: Request,
+    body: ServiceRequestAiInsightsRequest = Body(...),
+    _: User = Depends(get_current_editor_or_superuser),
+):
+    context = _compact_ticket_summary(body.summary)
+    context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"), default=str)
+    cache_key = hashlib.sha256(
+        f"{body.base_url}|{body.model}|{body.response_mode}|{context_json}".encode("utf-8")
+    ).hexdigest()
+    now_mono = time.monotonic()
+    cached = _AI_CACHE.get(cache_key)
+    if not body.force and cached and cached[0] > now_mono:
+        return cached[1].model_copy(update={"cached": True})
+
+    system = (
+        "Ты локальный аналитик заявок CORAX. Тебе передана только агрегированная сводка "
+        "за выбранный период. Не выдумывай заявки, людей, категории или цифры. "
+        "Найди 3–6 практически полезных инсайтов: динамика потока, концентрация нагрузки, "
+        "просрочка, SLA, приоритеты. Разделяй наблюдение и рекомендацию. "
+        "Пиши по-русски, коротко, без JSON и без таблиц."
+    )
+    user = (
+        "Прокомментируй статистику заявок. Сначала один вывод руководителю, затем "
+        "маркированный список приоритетов на ближайшую неделю.\n\n"
+        f"Сводка CORAX:\n{context_json}"
+    )
+    try:
+        base_url = normalize_lm_base_url(body.base_url)
+        await ensure_model_num_ctx(base_url=base_url, model=body.model)
+        text, used_model = await lm_studio_chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            base_url=base_url,
+            model=body.model,
+            mode="simple",
+            response_mode=body.response_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc) or "Локальная модель недоступна. Проверьте настройки LLM.",
+        ) from exc
+    text = _sanitize_model_output(text) or (text or "").strip()
+    if is_bad_lm_answer(text):
+        raise HTTPException(
+            status_code=502,
+            detail="Локальная модель вернула неполный или некорректный анализ.",
+        )
+
+    result = ServiceRequestAiInsight(
+        generated_at=datetime.now(timezone.utc),
+        model=used_model,
+        text=text.strip(),
+        cached=False,
+    )
+    _AI_CACHE[cache_key] = (now_mono + _AI_CACHE_SECONDS, result)
+    return result
 
 
 @router.patch("/{request_id}", response_model=ServiceRequestOut)

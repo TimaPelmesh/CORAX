@@ -34,11 +34,13 @@ export const en: MessageTree = {
     night: 'Good night',
   },
   roles: {
+    admin: 'Administrator',
     editor: 'Editor',
     viewer: 'Viewer',
   },
   nav: {
     inventory: 'Inventory',
+    sidebarBlurb: 'Fleet, tickets, and knowledge',
     dashboard: 'Dashboard',
     risks: 'Risk center',
     computers: 'Computers',
@@ -103,6 +105,10 @@ export const en: MessageTree = {
     notifyNewMany: 'New tickets: {n}',
     statusOpen: 'Open',
     statusInProgress: 'In progress',
+    profileMenu: 'Profile',
+    profileMenuHint: 'Theme & settings',
+    themeTitle: 'Appearance',
+    signedIn: 'Signed in',
   },
   prefs: {
     title: 'Settings',
@@ -214,7 +220,7 @@ export const en: MessageTree = {
     zabbixSubtitle: 'Zabbix API connection (read-only)',
     zabbixDataSubtitle: 'Hosts and problems from Zabbix (read-only).',
     agentTokensSubtitle: 'Tokens for inventory agents',
-    agentBundleSubtitle: 'Secure portable agents for Windows 7/10/11 and Linux',
+    agentBundleSubtitle: 'Windows: PowerShell ZIP is the standard. EXE is not 1:1 with PowerShell yet.',
     wolSubtitle:
       'Who may wake PCs for maintenance. The button is on the PC card and only appears when the host is offline.',
     httpsSubtitle:
@@ -1582,6 +1588,7 @@ export const en: MessageTree = {
       pageSizeLabel: 'Per page',
       pageSizeAria: 'Tickets per page',
       pageSize: '{size} tickets',
+      pageSizeAll: 'All tickets',
       ofTotal: 'of {total}',
       sort: {
         idDesc: 'ID ↓ (newest first)',
@@ -1726,6 +1733,29 @@ export const en: MessageTree = {
       overdue: 'Overdue',
       avgClose: 'Average close time',
       avgCloseSub: 'From opened date to actual close date',
+      perDay: 'Tickets per day',
+      highShare: 'High priority',
+      medianClose: 'Median close time',
+      topCategory: 'Top category',
+      topAssignee: 'Top assignee',
+      aiTitle: 'AI agent report',
+      aiHint: 'The model comments on volume, load and risks for the selected period — without inventing tickets.',
+      aiRun: 'Get insights',
+      aiRefresh: 'Refresh analysis',
+      aiBusy: 'Model is analyzing…',
+      aiEmpty: 'Run analysis to comment on the trend and priorities.',
+      aiPermission: 'Editors and admins can run this.',
+      insightOverdue: '{n} tickets are overdue ({pct}%) — the main risk this period.',
+      insightSla: '{pct}% of tickets with a deadline closed on time.',
+      insightLoad: '{name} owns {pct}% of the flow — load is concentrated.',
+      insightHigh: '{pct}% of tickets are high priority.',
+      insightDone: '{n} tickets closed ({pct}% of the flow).',
+      insightTrendUp: 'Volume is rising: the last days are above the previous ones.',
+      insightTrendDown: 'Volume is falling: recent days are quieter than before.',
+      insightsTitle: 'What the numbers show',
+      pdfOptionsToggle: 'PDF options',
+      openNow: 'Open',
+      progressNow: 'In progress',
       slaHit: 'SLA on time',
       slaHitSub: 'Closed on or before the planned date',
       dynamics: 'Trend (ticket volume)',
@@ -2353,13 +2383,13 @@ export const en: MessageTree = {
     buildError: 'Build failed',
     apiNotRespondingSuffix:
       '. The CORAX API is not responding on this URL/port — check that the server is running (prod :3000 or dev API :3001).',
-    platformCpp: 'Native Windows (recommended)',
-    platformWin10: 'ZIP Windows (7 / 10 / 11)',
+    platformCpp: 'Native EXE (not 1:1 with PowerShell)',
+    platformWin10: 'ZIP PowerShell Windows (recommended)',
     platformWin7: 'ZIP Windows 7',
     platformLinux: 'ZIP Linux (bash)',
     formatCpp: 'Portable ZIP',
     cppNotice:
-      'Native x64 agent for Windows 7/10/11. The ZIP contains one immutable EXE, public configuration and a one-time credential bootstrap. On first launch Windows DPAPI protects the token for that machine and removes the bootstrap file. The EXE stays byte-for-byte identical so Authenticode signatures remain valid.',
+      'Native x64 EXE for Windows 7/10/11. Inventory fields are not 1:1 with the PowerShell agent yet — use the PowerShell ZIP in production. The archive has an immutable EXE, public config and a one-time token bootstrap (DPAPI). Authenticode stays valid while the EXE is byte-for-byte unchanged.',
     guideLink: 'Full runbook: Knowledge base → Guide',
     linuxNotice:
       'Bash agent for Linux. The ZIP includes agent_env.sh (URL + token) and scripts. Extract to /opt/corax-agent (not /opt/corax). Script updates: update_scripts.sh — does not overwrite agent_env.sh. Full steps: Guide → Linux agent.',
@@ -2384,7 +2414,7 @@ export const en: MessageTree = {
     win7Notice:
       'Base profile: WMI, software registry, PnP peripherals. Extended modules (patches, BitLocker, Docker, etc.) are available only in the Windows 10/11 build.',
     windowsZipNotice:
-      'One archive for all Windows PCs. corax_send.bat detects Win7 vs 10/11 and runs the matching scripts. Do not extract next to the CORAX server. Updates: update_scripts.bat — keeps agent_env.bat (URL and token). Full steps: Guide → Inventory agent.',
+      'The canonical Windows agent. corax_send.bat picks Win7 vs 10/11. Splash animation is off by default (it used to close the cmd window). After a run, a “CORAX ticket” desktop shortcut opens /h with this PC name already filled in. Updates: update_scripts.bat — keeps agent_env.bat.',
     collectionLevel: 'Collection level',
     levelFull: 'Full',
     levelFullHint: 'All modules: network, patches, security, Office, Docker/WSL, and more.',
@@ -2422,7 +2452,7 @@ export const en: MessageTree = {
     summaryScheduleEnabled: 'install_schedule.bat',
     summaryScheduleDisabled: 'No',
     summaryArchiveWin10:
-      'Inside the archive: corax_send.bat (OS auto-detect), win10/, win7/, agent_env.bat, agent_config.json, update_scripts.bat.',
+      'Inside the archive: corax_send.bat (OS auto-detect), win10/ (PowerShell 5+), win7/, agent_env.bat, agent_config.json, update_scripts.bat. Desktop ticket shortcut: /h#pc=HOSTNAME.',
     summaryArchiveWin7:
       'Inside the archive: inventory_send_win7.bat, agent_env.bat, PowerShell scripts.',
     summaryArchiveCpp:
@@ -2443,7 +2473,7 @@ export const en: MessageTree = {
     deployStep2LinuxBefore: 'On the host, run',
     deployStep2LinuxAfter: '— the report will be sent to {serverUrl}.',
     deployStep3Win10:
-      'Scheduling: run install_schedule.bat as administrator. Script updates: update_scripts.bat (does not overwrite agent_env.bat).',
+      'Scheduling: run install_schedule.bat as administrator. Updates: update_scripts.bat (keeps agent_env.bat). The desktop “CORAX ticket” shortcut opens /h with this PC name.',
     deployStep3Win7:
       'Scheduling: create a Windows Task Scheduler task to run the bat manually or through GPO.',
     deployStep3Cpp:

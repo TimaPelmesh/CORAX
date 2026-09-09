@@ -1154,3 +1154,18 @@ class ServiceRequestAiSuggestOut(BaseModel):
     title_suggestion: str | None = None
     model: str | None = None
     error_detail: str | None = None
+
+
+class ServiceRequestAiInsightsRequest(BaseModel):
+    base_url: str | None = Field(default=None, max_length=512)
+    model: str | None = Field(default=None, max_length=255)
+    response_mode: str = Field(default="fast", pattern="^(fast|detailed)$")
+    force: bool = False
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class ServiceRequestAiInsight(BaseModel):
+    generated_at: datetime
+    model: str | None = None
+    text: str
+    cached: bool = False

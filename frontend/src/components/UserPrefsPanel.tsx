@@ -42,10 +42,12 @@ export function UserPrefsPanel({
   open,
   onClose,
   navItems,
+  embedded = false,
 }: {
   open: boolean
   onClose: () => void
   navItems: PrefsNavItem[]
+  embedded?: boolean
 }) {
   const { t, locale, setLocale, isNavHidden, setNavHidden, showAllNav } = useLocale()
   const { theme, setTheme } = useTheme()
@@ -129,42 +131,9 @@ export function UserPrefsPanel({
 
   if (!open) return null
 
-  return (
-    <div
-      className="app-modal-layer fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-[2px] sm:items-center sm:p-6"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="user-prefs-title"
-        className="app-card flex max-h-[min(52rem,calc(100dvh-1.5rem))] w-full max-w-5xl flex-col overflow-hidden shadow-2xl ring-1 ring-black/5"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-[var(--color-border)] px-5 py-3.5 sm:px-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 id="user-prefs-title" className="text-lg font-bold tracking-tight text-[var(--color-fg)]">
-                {t('prefs.title')}
-              </h2>
-              <p className="mt-0.5 text-sm text-[var(--color-fg-muted)]">{t('prefs.subtitle')}</p>
-            </div>
-            <button
-              type="button"
-              className="rounded-lg p-1 text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
-              onClick={onClose}
-              aria-label={t('common.close')}
-            >
-              <IconClose className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5">
+  const form = (
+        <div className={embedded ? 'space-y-4 p-3' : 'min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5'}>
+          <div className={embedded ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5'}>
             <SectionCard title={t('prefs.profile')} className="lg:col-span-7">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <UserAvatar
@@ -349,6 +318,46 @@ export function UserPrefsPanel({
             </SectionCard>
           </div>
         </div>
+  )
+
+  if (embedded) {
+    return <div className="max-h-[min(28rem,62vh)] overflow-y-auto">{form}</div>
+  }
+
+  return (
+    <div
+      className="app-modal-layer fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-[2px] sm:items-center sm:p-6"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-prefs-title"
+        className="app-card flex max-h-[min(52rem,calc(100dvh-1.5rem))] w-full max-w-5xl flex-col overflow-hidden shadow-2xl ring-1 ring-black/5"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-[var(--color-border)] px-5 py-3.5 sm:px-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 id="user-prefs-title" className="text-lg font-bold tracking-tight text-[var(--color-fg)]">
+                {t('prefs.title')}
+              </h2>
+              <p className="mt-0.5 text-sm text-[var(--color-fg-muted)]">{t('prefs.subtitle')}</p>
+            </div>
+            <button
+              type="button"
+              className="rounded-lg p-1 text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+              onClick={onClose}
+              aria-label={t('common.close')}
+            >
+              <IconClose className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+        {form}
       </div>
     </div>
   )

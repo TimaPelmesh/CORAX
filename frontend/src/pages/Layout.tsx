@@ -3,9 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 import { CoraxLogo } from '../components/CoraxLogo'
 import { AppTopBar } from '../components/AppTopBar'
-import { UserPrefsPanel } from '../components/UserPrefsPanel'
-import { UserAvatar } from '../components/UserAvatar'
-import { IconClose, IconLogout, IconMenu, IconSettings } from '../components/icons'
+import { IconClose, IconMenu } from '../components/icons'
 import { SidebarSectionList } from '../components/layout/SidebarNav'
 import { buildNavSections, prefsNavItems } from '../components/layout/navConfig'
 import { WikiRagIndexWatcher } from '../components/wikirag/WikiRagIndexWatcher'
@@ -27,24 +25,14 @@ function RouteLoader() {
 }
 
 export function Layout() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { t, isNavHidden } = useLocale()
-  const displayName = user?.full_name?.trim() || user?.username || ''
-  const showUsername =
-    Boolean(user?.full_name?.trim()) && user?.username && user.username !== displayName
-  const roleLabel = user?.is_superuser
-    ? null
-    : user?.role === 'editor'
-      ? t('roles.editor')
-      : t('roles.viewer')
-  const profileMeta = [showUsername ? user?.username : null, roleLabel].filter(Boolean).join(' · ')
   const location = useLocation()
   const lockPageScroll = location.pathname.startsWith('/knowledge-base/wikirag')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [mobileNavPath, setMobileNavPath] = useState(location.pathname)
   const [desktopNavHidden, setDesktopNavHidden] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
-  const [prefsOpen, setPrefsOpen] = useState(false)
   const navCounts = useNavCounts(Boolean(user))
   const { welcomeToast, welcomeToastLeaving } = useWelcomeToast(user)
   const mobileNavVisible = mobileNavOpen && mobileNavPath === location.pathname
@@ -116,48 +104,10 @@ export function Layout() {
           t={t}
         />
       </nav>
-
-      <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 safe-area-pb">
-        <div className="flex items-center gap-2.5 px-1.5 py-1.5">
-          <UserAvatar
-            size="sm"
-            src={user?.avatar_data}
-            name={user?.full_name}
-            username={user?.username}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-medium text-[var(--color-fg)]">{displayName}</div>
-            {profileMeta ? (
-              <div className="truncate text-[11px] text-[var(--color-fg-subtle)]">{profileMeta}</div>
-            ) : null}
-          </div>
-        </div>
-        <div className="mt-0.5 flex gap-0.5">
-          <button
-            type="button"
-            onClick={() => setPrefsOpen(true)}
-            className="sidebar-profile-btn"
-            aria-label={t('prefs.open')}
-            title={t('prefs.open')}
-          >
-            <IconSettings className="h-3.5 w-3.5" />
-            <span>{t('prefs.open')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              void (async () => {
-                await logout()
-                window.location.href = '/login'
-              })()
-            }}
-            className="sidebar-profile-btn"
-            aria-label={t('nav.logout')}
-            title={t('nav.logout')}
-          >
-            <IconLogout className="h-3.5 w-3.5" />
-            <span>{t('nav.logout')}</span>
-          </button>
+      <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3">
+        <div className="rounded-xl bg-[var(--color-bg-muted)] px-3 py-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">Corax</div>
+          <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-fg-muted)]">{t('nav.sidebarBlurb')}</div>
         </div>
       </div>
     </>
@@ -233,7 +183,7 @@ export function Layout() {
           }`}
         >
           <div className={`chrome-glass z-40 px-4 py-3 sm:px-6 lg:px-10 ${lockPageScroll ? 'shrink-0' : 'sticky top-0'}`}>
-            <AppTopBar />
+          <AppTopBar navItems={allNavForPrefs} />
           </div>
           <div
             className={
@@ -254,7 +204,6 @@ export function Layout() {
         </div>
       </main>
 
-      <UserPrefsPanel open={prefsOpen} onClose={() => setPrefsOpen(false)} navItems={allNavForPrefs} />
       <WikiRagIndexWatcher />
     </div>
   )

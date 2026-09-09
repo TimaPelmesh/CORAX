@@ -83,6 +83,14 @@ try {
         throw 'AGENT_TOKEN is not set. Configure agent_env.bat from admin bundle.'
     }
 
+    if ($config.helpdesk_shortcut -ne $false) {
+        try {
+            Install-CoraxHelpdeskShortcut -ServerUrl $base -Hostname $env:COMPUTERNAME
+        } catch {
+            Log "WARN: shortcut: $($_.Exception.Message)"
+        }
+    }
+
     Set-AgentProgress 'Core: hardware, OS, software...' 15
     $core = $null
     try {

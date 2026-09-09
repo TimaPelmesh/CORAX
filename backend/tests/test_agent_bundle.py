@@ -40,6 +40,9 @@ def test_windows_bundle_unifies_win7_and_win10():
         win10_bat = zf.read("win10/corax_send.bat").decode("utf-8", errors="replace")
         assert r"System32\WindowsPowerShell\v1.0\powershell.exe" in win10_bat
         assert "powershell.exe -NoProfile" not in win10_bat
+        assert "WindowStyle Normal" in win10_bat
+        assert "if defined CORAX_SPLASH" not in win10_bat
+        assert "start /wait" not in win10_bat.lower()
         common = zf.read("win10/lib/Agent-Common.ps1").decode("utf-8-sig")
         assert "function Stop-AgentJob" in common
         for arc_name in names:
@@ -52,7 +55,7 @@ def test_windows_bundle_unifies_win7_and_win10():
                     continue
                 assert not _STOP_JOB_FORCE.search(line), f"{arc_name}: {line}"
         config = zf.read("agent_config.json").decode("utf-8")
-        assert "3.2.0-windows" in config
+        assert "3.2.3-windows" in config
         client = zf.read("win10/InventoryClient.ps1").decode("utf-8-sig")
         assert "Start-ExtendedCollectJob" not in client
         assert "Invoke-ExtendedInProcess" in client
@@ -60,9 +63,21 @@ def test_windows_bundle_unifies_win7_and_win10():
         ext_call = client.find("$extra = Invoke-ExtendedInProcess")
         assert core_post != -1 and ext_call != -1
         assert core_post < ext_call
-        between = client[core_post:ext_call]
-        assert "Install-CoraxHelpdeskShortcut" in between
-        assert between.find("if ($exitCode -eq 0)") < between.find("Install-CoraxHelpdeskShortcut")
+        first_shortcut = client.find("Install-CoraxHelpdeskShortcut")
+        assert first_shortcut != -1
+        assert first_shortcut < core_post
+        assert "/h#pc=" in common
+        assert "CORAX-ticket.url" in common
+        assert "WScript.Shell" in common
+        assert "OneDrive" in common
+        splash = zf.read("win10/corax_splash.ps1").decode("utf-8-sig")
+        assert "SetCursorPosition" not in splash
+        assert "CursorVisible" not in splash
+        win7_bat = zf.read("win7/inventory_send_win7.bat").decode("utf-8", errors="replace")
+        assert "if defined CORAX_SPLASH" not in win7_bat
+        win7_client = zf.read("win7/InventoryClient_win7.ps1").decode("utf-8-sig")
+        assert "/h#pc=" in win7_client
+        assert "CORAX-ticket.url" in win7_client
         post = zf.read("win10/lib/Invoke-Post.ps1").decode("utf-8-sig")
         assert "ConvertTo-AgentJson" in post
         assert "JavaScriptSerializer" in post
