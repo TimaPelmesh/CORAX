@@ -77,11 +77,10 @@ export function Layout() {
 
   const sidebarNav = (
     <>
-      <div className="relative flex h-14 shrink-0 items-center justify-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 pr-14 lg:pr-3.5">
-        <CoraxLogo variant="sidebar" alt="Corax" />
+      <div className="relative flex h-14 shrink-0 items-center justify-end border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 lg:hidden">
         <button
           type="button"
-          className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] dark:text-[var(--color-fg-subtle)] lg:hidden"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] dark:text-[var(--color-fg-subtle)]"
           onClick={closeNav}
           aria-label={t('nav.closeMenu')}
         >
@@ -104,12 +103,6 @@ export function Layout() {
           t={t}
         />
       </nav>
-      <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3">
-        <div className="rounded-xl bg-[var(--color-bg-muted)] px-3 py-2.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">Corax</div>
-          <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-fg-muted)]">{t('nav.sidebarBlurb')}</div>
-        </div>
-      </div>
     </>
   )
 

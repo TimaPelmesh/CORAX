@@ -1,7 +1,13 @@
 from types import SimpleNamespace
 
 from app.ticket_client_identity import client_ip_from_parts, is_dockerish_ip, sam_account
-from app.ticket_handler_runtime import hostname_candidates, requester_label_for_user
+from app.ticket_handler_runtime import (
+    assignee_public_label,
+    hostname_candidates,
+    normalize_intake_status,
+    requester_label_for_user,
+    summarize_public_assignees,
+)
 
 
 def test_hostname_candidates_fqdn_and_netbios():
@@ -28,3 +34,19 @@ def test_dockerish_and_sam_account():
     assert not is_dockerish_ip("192.168.3.50")
     assert sam_account(r"CORP\ivanov") == "ivanov"
     assert sam_account("ivanov@corp.local") == "ivanov"
+
+
+def test_intake_status_starts_in_progress():
+    assert normalize_intake_status(None) == "in_progress"
+    assert normalize_intake_status("new") == "in_progress"
+    assert normalize_intake_status("open") == "in_progress"
+    assert normalize_intake_status("in_progress") == "in_progress"
+    assert normalize_intake_status("done") == "done"
+
+
+def test_public_assignee_labels():
+    assert assignee_public_label("Иван Петров", "ipetrov") == "Иван Петров"
+    assert assignee_public_label("", "ipetrov") == "ipetrov"
+    assert assignee_public_label(None, "ticket-handler-bot") is None
+    assert summarize_public_assignees(["Анна", "Борис"]) == ["Анна", "Борис"]
+    assert summarize_public_assignees(["Анна", "Борис", "Виктор"]) == ["IT-поддержка"]

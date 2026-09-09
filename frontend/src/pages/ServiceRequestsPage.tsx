@@ -65,8 +65,6 @@ import {
   userDirectoryLabel,
   DirectoryRequesterPicker,
   DirectoryAssigneesPicker,
-  takeSkipNextListReload,
-  markSkipNextListReload,
 } from './service-requests/shared'
 
 const RequestsStatsLineChart = lazy(() => import('./service-requests/RequestsStatsLineChart'))
@@ -708,9 +706,6 @@ export function ServiceRequestsPage() {
   }, [tab, visibleRows, dbPage, dbPageCount, dbPageSize, showAllRows, query, filterCategory, sortKey])
 
   const load = useCallback(async () => {
-    if (takeSkipNextListReload() && (tab === 'database' || tab === 'stats')) {
-      return
-    }
     setLoading(true)
     try {
       const editId = searchParams.get('edit')
@@ -988,7 +983,6 @@ export function ServiceRequestsPage() {
 
   function navigateBackToList(returnPath: string | null, returnPage: number | null) {
     if (!returnPath || returnPath === '/requests') return
-    markSkipNextListReload()
     if (returnPage != null) setDbPage(returnPage)
     navigate(returnPath)
   }

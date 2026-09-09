@@ -1,4 +1,5 @@
-import { memo, type ComponentType, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
 import { formatNavBadge } from '../../lib/navBadge'
 import type { NavBadgeKey, NavCounts, NavItemDef, NavSectionDef } from './navTypes'
@@ -62,6 +63,7 @@ export function SidebarGroupButton({
   badge,
   onToggle,
   to,
+  chevronMode = 'down',
 }: {
   label: string
   icon: ComponentType<{ className?: string }>
@@ -69,6 +71,8 @@ export function SidebarGroupButton({
   badge?: number
   onToggle: () => void
   to?: string
+  /** 'down' rotates the caret up when open; 'side' points it right (open ⇒ down). */
+  chevronMode?: 'down' | 'side'
 }) {
   const body = (
     <span className="flex min-w-0 flex-1 items-center gap-[0.55rem]">
@@ -80,7 +84,11 @@ export function SidebarGroupButton({
     </span>
   )
   const chevron = (
-    <span className={`sidebar-group-chevron ${open ? 'sidebar-group-chevron-open' : ''}`} aria-hidden>
+    <span
+      className={`sidebar-group-chevron ${chevronMode === 'down' && open ? 'sidebar-group-chevron-open' : ''}`}
+      style={chevronMode === 'side' ? { transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' } : undefined}
+      aria-hidden
+    >
       <svg viewBox="0 0 20 20" fill="none" className="h-3 w-3">
         <path
           d="M5.5 7.5L10 12l4.5-4.5"
@@ -114,6 +122,131 @@ export function SidebarGroupButton({
   )
 }
 
+type FlyoutPos = { top: number; left: number; maxHeight: number }
+
+export function SidebarFlyoutGroup({
+  label,
+  icon: Icon,
+  open,
+  badge,
+  items,
+  navCounts,
+  onToggle,
+  onClose,
+  onNavigate,
+  t,
+}: {
+  label: string
+  icon: ComponentType<{ className?: string }>
+  open: boolean
+  badge?: number
+  items: NavItemDef[]
+  navCounts: NavCounts | null
+  onToggle: () => void
+  onClose: () => void
+  onNavigate: () => void
+  t: (key: NavItemDef['labelKey']) => string
+}) {
+  const anchorRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<FlyoutPos | null>(null)
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null)
+      return
+    }
+    const update = () => {
+      const el = anchorRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const gap = 8
+      const margin = 8
+      const panelWidth = 248
+      const desiredMax = 460
+      let left = r.right + gap
+      if (left + panelWidth > window.innerWidth - margin) {
+        left = Math.max(margin, r.left - gap - panelWidth)
+      }
+      let top = r.top
+      const spaceBelow = window.innerHeight - margin - top
+      if (spaceBelow < desiredMax) {
+        top = Math.max(margin, window.innerHeight - margin - Math.min(desiredMax, window.innerHeight - margin * 2))
+      }
+      const maxHeight = window.innerHeight - margin - top
+      setPos({ top, left, maxHeight })
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (anchorRef.current?.contains(e.target as Node)) return
+      if (panelRef.current?.contains(e.target as Node)) return
+      onClose()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
+  return (
+    <div ref={anchorRef}>
+      <SidebarGroupButton
+        label={label}
+        icon={Icon}
+        open={open}
+        badge={badge}
+        onToggle={onToggle}
+        chevronMode="side"
+      />
+      {open && pos
+        ? createPortal(
+            <div
+              ref={panelRef}
+              className="sidebar-scroll fixed z-[80] w-[15.5rem] overflow-y-auto overscroll-contain rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-xl shadow-black/10"
+              style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight }}
+              role="menu"
+            >
+              <div className="sidebar-section-label">{label}</div>
+              <div className="flex flex-col gap-0.5">
+                {items.map((item) => (
+                  <SidebarNavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    icon={item.icon}
+                    badge={item.badgeKey ? navCounts?.[item.badgeKey] : undefined}
+                    onNavigate={() => {
+                      onNavigate()
+                      onClose()
+                    }}
+                  >
+                    {t(item.labelKey)}
+                  </SidebarNavLink>
+                ))}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  )
+}
+
 export function SidebarSectionList({
   sections,
   navCounts,
@@ -135,6 +268,25 @@ export function SidebarSectionList({
         const sectionTitle = t(section.titleKey)
         const open = section.collapsible === false || openGroups[section.titleKey] !== false
         const sectionBadge = section.badgeKey ? navCounts?.[section.badgeKey as NavBadgeKey] : undefined
+        if (section.flyout) {
+          const flyoutOpen = openGroups[section.titleKey] === true
+          return (
+            <div key={section.titleKey}>
+              <SidebarFlyoutGroup
+                label={sectionTitle}
+                icon={section.icon}
+                open={flyoutOpen}
+                badge={sectionBadge}
+                items={section.items}
+                navCounts={navCounts}
+                onToggle={() => onToggleGroup(section.titleKey, flyoutOpen)}
+                onClose={() => onToggleGroup(section.titleKey, true)}
+                onNavigate={onNavigate}
+                t={t}
+              />
+            </div>
+          )
+        }
         return (
           <div key={section.titleKey}>
             {section.collapsible === false ? (

@@ -1125,6 +1125,21 @@ class TicketHandlerPublicContextOut(BaseModel):
     requester_hint: str | None = None
 
 
+class TicketHandlerPublicTicketOut(BaseModel):
+    id: int
+    ticket_no: int | None = None
+    title: str
+    status: str
+    assignees: list[str] = Field(default_factory=list)
+    opened_at: datetime | None = None
+    updated_at: datetime | None = None
+    closed_at: datetime | None = None
+
+
+class TicketHandlerPublicTicketsOut(BaseModel):
+    items: list[TicketHandlerPublicTicketOut] = Field(default_factory=list)
+
+
 class TicketHandlerIntakeRequest(BaseModel):
     hostname: str = Field(default="", max_length=255)
     title: str = Field(min_length=3, max_length=255)

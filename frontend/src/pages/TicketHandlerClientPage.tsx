@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { api, type TicketHandlerIntakeResult, type TicketHandlerPublicContext } from '../api'
+import { api, type TicketHandlerIntakeResult, type TicketHandlerPublicContext, type TicketHandlerPublicTicket } from '../api'
 import { CoraxLogo } from '../components/CoraxLogo'
 import { helpGreeting } from '../lib/helpGreeting'
-import { applyTitleCompletion, lastTitleToken, matchTitleHints } from '../lib/titleKeywordHints'
+import { helpTicketStatusLabel, helpTicketTakenLine, helpTicketWhen } from '../lib/helpTickets'
 
 function hashParams() {
   return new URLSearchParams(window.location.hash.replace(/^#/, ''))
@@ -35,6 +35,10 @@ function shortPcName(name: string) {
   return raw.split('.')[0]
 }
 
+function ticketNo(row: TicketHandlerPublicTicket) {
+  return row.ticket_no != null ? `№${row.ticket_no}` : `№${row.id}`
+}
+
 export function TicketHandlerClientPage() {
   const params = useMemo(() => hashParams(), [])
   const hintedHost = params.get('pc')?.trim() ?? ''
@@ -46,8 +50,18 @@ export function TicketHandlerClientPage() {
   const [sending, setSending] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [detecting, setDetecting] = useState(true)
-  const titleHints = useMemo(() => matchTitleHints(titleDraft), [titleDraft])
-  const typedToken = lastTitleToken(titleDraft).token
+  const [tickets, setTickets] = useState<TicketHandlerPublicTicket[]>([])
+
+  const hostForApi = context?.hostname || hintedHost || undefined
+
+  const loadTickets = useCallback(() => {
+    return api
+      .ticketHandlerPublicTickets(hostForApi, secret)
+      .then((out) => setTickets(Array.isArray(out.items) ? out.items : []))
+      .catch(() => {
+        /* keep last known list — form still works */
+      })
+  }, [hostForApi, secret])
 
   useEffect(() => {
     let cancelled = false
@@ -71,29 +85,38 @@ export function TicketHandlerClientPage() {
     }
   }, [hintedHost, secret])
 
+  useEffect(() => {
+    if (!context) return
+    void loadTickets()
+    const timer = window.setInterval(() => {
+      void loadTickets()
+    }, 15000)
+    return () => window.clearInterval(timer)
+  }, [context, loadTickets])
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (sending || result) return
-    const form = new FormData(event.currentTarget)
+    if (sending) return
+    const form = event.currentTarget
+    const data = new FormData(form)
     setSending(true)
     setError('')
     try {
       const out = await api.ticketHandlerIntake({
         hostname: context?.hostname || hintedHost || undefined,
-        title: String(form.get('title') ?? ''),
-        description: String(form.get('description') ?? ''),
+        title: String(data.get('title') ?? ''),
+        description: String(data.get('description') ?? ''),
         secret,
       })
       setResult(out)
+      setTitleDraft('')
+      form.reset()
+      await loadTickets()
     } catch (e) {
       setError(friendlyError(e instanceof Error ? e.message : String(e)))
     } finally {
       setSending(false)
     }
-  }
-
-  function applyHint(hint: string) {
-    setTitleDraft((prev) => applyTitleCompletion(prev, hint))
   }
 
   const ticketLabel =
@@ -108,6 +131,7 @@ export function TicketHandlerClientPage() {
   const place = (context?.location || '').trim()
   const blocked = Boolean(error && !context)
   const hello = helpGreeting(person)
+  const highlightId = result?.request_id ?? null
 
   return (
     <main className="help-page">
@@ -123,9 +147,7 @@ export function TicketHandlerClientPage() {
           </div>
           <p className="help-hello">{hello}</p>
           <h1 className="help-title">Чем помочь?</h1>
-          <p className="help-lead">
-            Пишите как есть. Начните слово — подставим его целиком: картридж, Outlook, VPN. Tab или клик.
-          </p>
+          <p className="help-lead">Опишите проблему своими словами. Заявку сразу возьмут в работу — статус можно смотреть ниже.</p>
           {detecting && !pcName ? (
             <p className="help-device is-wait">Уточняем, с какого компьютера заявка…</p>
           ) : null}
@@ -144,44 +166,16 @@ export function TicketHandlerClientPage() {
             </div>
           ) : null}
 
-          {result ? (
-            <div className="help-success" role="status">
-              <span className="help-success-mark" aria-hidden>
-                <svg viewBox="0 0 24 24" className="h-7 w-7">
-                  <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.6" />
-                  <path
-                    d="M8.2 12.4 11 15.1l4.8-5.6"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
+          {result && !blocked ? (
+            <div className="help-success help-success-banner" role="status">
               <p className="help-success-title">{ticketLabel ? `Заявка принята, ${ticketLabel}` : 'Заявка принята'}</p>
-              <p className="help-success-text">Специалист уже видит её и свяжется с вами при необходимости.</p>
-              {result.requester_name ? (
-                <p className="help-success-meta">Обращение от {displayName(result.requester_name)}</p>
-              ) : null}
-              {pcName ? <p className="help-success-meta">Компьютер {pcName}</p> : null}
-              <button
-                type="button"
-                className="help-btn-ghost"
-                onClick={() => {
-                  setResult(null)
-                  setTitleDraft('')
-                  setError('')
-                }}
-              >
-                Создать ещё одну
-              </button>
+              <p className="help-success-text">Она уже в работе. Ниже можно следить, кто её ведёт.</p>
             </div>
           ) : null}
 
-          {!blocked && !result ? (
+          {!blocked ? (
             <form className="help-form" onSubmit={submit}>
-              {error ? (
+              {error && context ? (
                 <div className="help-alert help-alert-soft" role="alert">
                   {error}
                 </div>
@@ -195,40 +189,11 @@ export function TicketHandlerClientPage() {
                   name="title"
                   value={titleDraft}
                   onChange={(e) => setTitleDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Tab' || titleHints.length < 1) return
-                    e.preventDefault()
-                    applyHint(titleHints[0])
-                  }}
                   placeholder="Например: поменять картридж в принтере"
                   autoComplete="off"
                   autoFocus
                 />
               </label>
-
-              {titleHints.length > 0 ? (
-                <div className="help-hints" role="list">
-                  <span className="help-hints-label">Tab — подставить слово</span>
-                  {titleHints.map((hint) => {
-                    const q = typedToken
-                    const lower = hint.toLocaleLowerCase('ru')
-                    const qLower = q.toLocaleLowerCase('ru')
-                    const splitAt = lower.startsWith(qLower) ? q.length : 0
-                    return (
-                      <button key={hint} type="button" className="help-hint" onClick={() => applyHint(hint)}>
-                        {splitAt > 0 ? (
-                          <>
-                            <span className="help-hint-typed">{hint.slice(0, splitAt)}</span>
-                            {hint.slice(splitAt)}
-                          </>
-                        ) : (
-                          hint
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : null}
 
               <label className="help-field help-field-quiet">
                 <span>
@@ -252,6 +217,40 @@ export function TicketHandlerClientPage() {
                 )}
               </button>
             </form>
+          ) : null}
+
+          {!blocked ? (
+            <section className="help-tickets" aria-live="polite">
+              <h2 className="help-tickets-title">Ваши заявки</h2>
+              {tickets.length === 0 ? (
+                <p className="help-tickets-empty">Пока нет заявок с этого компьютера. После отправки они появятся здесь.</p>
+              ) : (
+                <ul className="help-ticket-list">
+                  {tickets.map((row) => {
+                    const taken = helpTicketTakenLine(row.status, row.assignees)
+                    const when = helpTicketWhen(row.closed_at || row.updated_at || row.opened_at)
+                    const active = highlightId != null && row.id === highlightId
+                    return (
+                      <li
+                        key={row.id}
+                        className={`help-ticket${active ? ' is-new' : ''}${row.status === 'done' || row.status === 'cancelled' ? ' is-done' : ''}`}
+                      >
+                        <div className="help-ticket-top">
+                          <span className="help-ticket-no">{ticketNo(row)}</span>
+                          <span className={`help-ticket-status is-${row.status}`}>{helpTicketStatusLabel(row.status)}</span>
+                        </div>
+                        <p className="help-ticket-title">{row.title}</p>
+                        <p className="help-ticket-meta">
+                          {taken ? <span>{taken}</span> : null}
+                          {taken && when ? <span aria-hidden> · </span> : null}
+                          {when ? <span>{when}</span> : null}
+                        </p>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
           ) : null}
         </div>
       </section>

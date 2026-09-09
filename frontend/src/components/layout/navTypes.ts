@@ -21,5 +21,9 @@ export type NavSectionDef = {
   badgeKey?: NavBadgeKey
   /** When set, the group label navigates here (chevron still toggles). */
   hubTo?: string
+  /** Render the group as a side flyout panel instead of an inline expanding list. */
+  flyout?: boolean
+  /** Hide the section heading in the main sidebar. */
+  hideTitle?: boolean
   items: NavItemDef[]
 }

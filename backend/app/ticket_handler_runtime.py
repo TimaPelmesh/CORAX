@@ -94,6 +94,18 @@ class EnrichResult:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class PublicTicket:
+    id: int
+    ticket_no: int | None
+    title: str
+    status: str
+    assignees: list[str]
+    opened_at: datetime | None
+    updated_at: datetime | None
+    closed_at: datetime | None
+
+
 def _step_enabled(pipeline: list[dict[str, Any]], step_id: str) -> bool:
     for s in pipeline:
         if str(s.get("id") or "") == step_id:
@@ -328,6 +340,106 @@ async def resolve_client_identity(
     )
 
 
+def normalize_intake_status(raw: str | None) -> str:
+    """Public /h tickets start in work so IT sees them immediately."""
+    status = (raw or "in_progress").strip().lower() or "in_progress"
+    if status in {"new", "open"}:
+        return "in_progress"
+    return status[:64]
+
+
+def assignee_public_label(full_name: str | None, username: str | None) -> str | None:
+    uname = (username or "").strip()
+    if uname.endswith("-bot"):
+        return None
+    full = (full_name or "").strip()
+    label = full or uname
+    return label or None
+
+
+def summarize_public_assignees(names: list[str]) -> list[str]:
+    cleaned = [n.strip() for n in names if (n or "").strip()]
+    if len(cleaned) > 2:
+        return ["IT-поддержка"]
+    return cleaned
+
+
+def _requester_login(label: str | None) -> str | None:
+    raw = (label or "").strip()
+    if not raw:
+        return None
+    m = re.search(r"\(([^)]+)\)\s*$", raw)
+    if m:
+        return sam_account(m.group(1))
+    return sam_account(raw)
+
+
+def _ilike_contains(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+async def list_public_tickets(
+    db: AsyncSession,
+    identity: ClientIdentity,
+    *,
+    limit: int = 40,
+) -> list[PublicTicket]:
+    """Tickets this employee can monitor on /h — same PC / same AD account."""
+    scope: list[Any] = []
+    if identity.computer is not None:
+        scope.append(ServiceRequest.computer_id == identity.computer.id)
+    keys = hostname_candidates(identity.hostname)
+    if keys:
+        scope.append(func.lower(ServiceRequest.external_id).in_(keys))
+    if not scope:
+        return []
+
+    stmt = (
+        select(ServiceRequest)
+        .where(
+            ServiceRequest.external_source.in_(("ticket_handler", "self_service")),
+            or_(*scope),
+        )
+        .order_by(ServiceRequest.id.desc())
+        .limit(max(1, min(limit, 80)))
+    )
+    login = _requester_login(identity.requester_name)
+    if login:
+        stmt = stmt.where(ServiceRequest.requester_name.ilike(_ilike_contains(login), escape="\\"))
+
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
+        return []
+
+    request_ids = [row.id for row in rows]
+    assignees: dict[int, list[str]] = {rid: [] for rid in request_ids}
+    ar = await db.execute(
+        select(service_request_assignees.c.request_id, User.full_name, User.username)
+        .join(User, User.id == service_request_assignees.c.user_id)
+        .where(service_request_assignees.c.request_id.in_(request_ids))
+        .order_by(User.username.asc())
+    )
+    for request_id, full_name, username in ar.all():
+        label = assignee_public_label(full_name, username)
+        if label:
+            assignees.setdefault(int(request_id), []).append(label)
+
+    return [
+        PublicTicket(
+            id=row.id,
+            ticket_no=row.ticket_no,
+            title=row.title,
+            status=row.status,
+            assignees=summarize_public_assignees(assignees.get(row.id, [])),
+            opened_at=row.opened_at or row.created_at,
+            updated_at=row.updated_at,
+            closed_at=row.closed_at,
+        )
+        for row in rows
+    ]
+
+
 async def _load_category_paths(db: AsyncSession) -> list[str]:
     from app.models import ServiceRequestCategory
     from app.request_categories_defaults import DEFAULT_REQUEST_CATEGORIES
@@ -479,9 +591,7 @@ async def _create_service_request(
 ) -> ServiceRequest:
     bot = await _bot_user(db)
     now = datetime.now(timezone.utc)
-    status = (cfg.default_status or "open").strip() or "open"
-    if status == "new":
-        status = "open"
+    status = normalize_intake_status(cfg.default_status)
     priority = (cfg.default_priority or "normal").strip() or "normal"
     cat = (category or "").strip() or None
     label = (requester_name or "").strip()

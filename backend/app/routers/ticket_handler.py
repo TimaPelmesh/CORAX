@@ -11,7 +11,6 @@ from app.auth import get_current_editor_or_superuser, get_current_user
 from app.config import settings
 from app.database import get_db
 from app.models import TicketHandlerConfig, TicketHandlerRun, User
-from app.rate_limit import limiter
 from app.schemas import (
     TicketHandlerConfigOut,
     TicketHandlerConfigUpdate,
@@ -19,15 +18,19 @@ from app.schemas import (
     TicketHandlerIntakeResponse,
     TicketHandlerPipelineStep,
     TicketHandlerPublicContextOut,
+    TicketHandlerPublicTicketOut,
+    TicketHandlerPublicTicketsOut,
     TicketHandlerRunOut,
     TicketHandlerStatsOut,
     TicketHandlerStatsPoint,
 )
+from app.rate_limit import limiter
 from app.ticket_client_identity import client_ip, is_private_ip, sso_login
 from app.ticket_handler_runtime import (
     DEFAULT_SYSTEM_PROMPT,
     IntakeInput,
     enrich_ticket_ai_task,
+    list_public_tickets,
     resolve_client_identity,
     run_intake,
 )
@@ -122,7 +125,7 @@ def _row_to_out(row: TicketHandlerConfig) -> TicketHandlerConfigOut:
         auto_create_ticket=bool(row.auto_create_ticket),
         default_priority=(row.default_priority or "normal").strip() or "normal",
         default_category=(row.default_category or "").strip(),
-        default_status=(row.default_status or "new").strip() or "new",
+        default_status=(row.default_status or "in_progress").strip() or "in_progress",
         system_prompt=(row.system_prompt or "").strip() or DEFAULT_SYSTEM_PROMPT,
         pipeline=_parse_pipeline(row.pipeline_json),
         updated_at=row.updated_at,
@@ -153,7 +156,7 @@ async def _get_or_create_config(db: AsyncSession) -> TicketHandlerConfig:
             auto_create_ticket=True,
             default_priority="normal",
             default_category="",
-            default_status="open",
+            default_status="in_progress",
             system_prompt=DEFAULT_SYSTEM_PROMPT,
             pipeline_json=_default_pipeline_json(),
         )
@@ -197,8 +200,8 @@ async def _get_or_create_config(db: AsyncSession) -> TicketHandlerConfig:
         row.default_category = ""
         healed = True
     status = (row.default_status or "").strip().lower()
-    if not status or status == "new":
-        row.default_status = "open"
+    if not status or status in {"new", "open"}:
+        row.default_status = "in_progress"
         healed = True
     if not (row.llm_base_url or "").strip():
         row.llm_base_url = (settings.lm_studio_base_url or "").strip() or "http://127.0.0.1:11434/v1"
@@ -459,6 +462,39 @@ async def public_context(
         computer_id=identity.computer.id if identity.computer else None,
         location=identity.location,
         requester_hint=identity.requester_name,
+    )
+
+
+@router.get("/public/tickets", response_model=TicketHandlerPublicTicketsOut)
+async def public_tickets(
+    request: Request,
+    hostname: str | None = Query(default=None, max_length=255),
+    secret: str | None = Query(default=None, max_length=255),
+    db: AsyncSession = Depends(get_db),
+):
+    cfg = await _get_or_create_config(db)
+    _require_intake_access(cfg, request, secret)
+    identity = await resolve_client_identity(
+        db,
+        hostname_hint=hostname or "",
+        client_ip=client_ip(request),
+        sso_login=sso_login(request),
+    )
+    rows = await list_public_tickets(db, identity)
+    return TicketHandlerPublicTicketsOut(
+        items=[
+            TicketHandlerPublicTicketOut(
+                id=row.id,
+                ticket_no=row.ticket_no,
+                title=row.title,
+                status=row.status,
+                assignees=row.assignees,
+                opened_at=row.opened_at,
+                updated_at=row.updated_at,
+                closed_at=row.closed_at,
+            )
+            for row in rows
+        ]
     )
 
 

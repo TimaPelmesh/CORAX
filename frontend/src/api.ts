@@ -1081,6 +1081,17 @@ export type TicketHandlerPublicContext = {
   requester_hint: string | null
 }
 
+export type TicketHandlerPublicTicket = {
+  id: number
+  ticket_no: number | null
+  title: string
+  status: string
+  assignees: string[]
+  opened_at: string | null
+  updated_at: string | null
+  closed_at: string | null
+}
+
 export type TicketHandlerIntakeResult = {
   ok: boolean
   answer: string
@@ -1927,6 +1938,16 @@ export const api = {
     if (secret) q.set('secret', secret)
     const qs = q.toString()
     return request<TicketHandlerPublicContext>(`${API_PREFIX}/ticket-handler/public/context${qs ? `?${qs}` : ''}`)
+  },
+
+  ticketHandlerPublicTickets: (hostname?: string, secret?: string) => {
+    const q = new URLSearchParams()
+    if (hostname?.trim()) q.set('hostname', hostname.trim())
+    if (secret) q.set('secret', secret)
+    const qs = q.toString()
+    return request<{ items: TicketHandlerPublicTicket[] }>(
+      `${API_PREFIX}/ticket-handler/public/tickets${qs ? `?${qs}` : ''}`,
+    )
   },
 
   ticketHandlerIntake: (body: {

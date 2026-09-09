@@ -70,17 +70,6 @@ export function getAppScrollContainer(): HTMLElement | null {
 type ListScrollRestore = { path: string; scrollTop: number; requestId: number }
 
 let pendingListScrollRestore: ListScrollRestore | null = null
-let skipNextListReload = false
-
-export function takeSkipNextListReload(): boolean {
-  const v = skipNextListReload
-  skipNextListReload = false
-  return v
-}
-
-export function markSkipNextListReload(): void {
-  skipNextListReload = true
-}
 
 export function captureListScrollForRestore(requestId: number, path: string) {
   const el = getAppScrollContainer()

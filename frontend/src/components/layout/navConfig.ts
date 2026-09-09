@@ -69,6 +69,7 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
       titleKey: 'nav.inventory',
       icon: IconPcs,
       collapsible: false,
+      hideTitle: true,
       items: [
         { to: '/', end: true, icon: IconDashboard, labelKey: 'nav.dashboard', keywords: ['home', 'главная'] },
         {
@@ -235,7 +236,7 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
     titleKey: 'nav.settings',
     icon: IconKey,
     collapsible: true,
-    hubTo: '/settings',
+    flyout: true,
     items: settingsItems,
   })
   return sections
