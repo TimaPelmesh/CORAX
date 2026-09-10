@@ -51,23 +51,33 @@ function Test-IsAdmin {
 }
 
 function Invoke-SelfElevate {
+    # Обычно повышение делает corax_audit.bat (одно окно). Это — запасной путь,
+    # если .ps1 запустили напрямую без прав администратора.
     if (Test-IsAdmin) { return }
-    Write-Warn2 'Нужны права администратора — перезапуск через UAC...'
+    if ([string]::IsNullOrWhiteSpace($PSCommandPath)) {
+        Write-Warn2 'Запуск без прав администратора (не удалось определить путь для перезапуска).'
+        return
+    }
+    Write-Warn2 'Нужны права администратора — открываю окно с повышением прав (UAC)...'
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = (Get-Process -Id $PID).Path
-    if (-not $psi.FileName) { $psi.FileName = 'powershell.exe' }
+    if ([string]::IsNullOrWhiteSpace($psi.FileName)) { $psi.FileName = 'powershell.exe' }
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
     if ($Server) { $argList += @('-Server', "`"$Server`"") }
     if ($Token)  { $argList += @('-Token', "`"$Token`"") }
     $psi.Arguments = ($argList -join ' ')
     $psi.Verb = 'runas'
+    $psi.UseShellExecute = $true
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Normal
+    try { $psi.WorkingDirectory = (Split-Path -Parent $PSCommandPath) } catch { }
     try {
         [void][System.Diagnostics.Process]::Start($psi)
+        exit 0
     } catch {
-        Write-ErrLine 'Не удалось поднять права (UAC отклонён). Часть данных не соберётся.'
-        return
+        # 1223 = пользователь отклонил UAC; иначе повышение недоступно (политики/сервис AppInfo).
+        Write-Warn2 ("Повышение прав не выполнено ({0})." -f $_.Exception.Message)
+        Write-Warn2 'Продолжаю без администратора — часть данных (BitLocker, SMART, службы, локальные админы) будет пропущена.'
     }
-    exit 0
 }
 
 function To-Bool($v) {
@@ -832,6 +842,9 @@ if ([string]::IsNullOrWhiteSpace($Server) -or [string]::IsNullOrWhiteSpace($Toke
 }
 $Server = $Server.TrimEnd('/')
 
+$exit = 1
+try {
+
 if (Test-IsAdmin) { Write-Ok 'Права администратора: есть' }
 else { Write-Warn2 'Права администратора: НЕТ — часть данных (BitLocker, SMART, службы) не соберётся' }
 
@@ -902,5 +915,14 @@ if ($ok) {
     $exit = 1
 }
 
-if (-not $NoPause) { Write-Host ''; Read-Host 'Enter для выхода' }
+}
+catch {
+    Write-Host ''
+    Write-ErrLine ("НЕОЖИДАННАЯ ОШИБКА: {0}" -f $_.Exception.Message)
+    Write-Host ("  {0}" -f $_.ScriptStackTrace) -ForegroundColor DarkGray
+    $exit = 1
+}
+finally {
+    if (-not $NoPause) { Write-Host ''; Read-Host 'Enter для выхода' }
+}
 exit $exit
