@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # Copied from previous agent\InventoryClient.ps1 so win10-11 is self-contained.
 # Log lines = ASCII only (encoding-safe on any PC).
 $ErrorActionPreference = 'Stop'
@@ -17,6 +17,33 @@ function Log([string]$Msg) {
     Write-Host $Msg
 }
 
+function Get-CoraxPrimaryIPv4 {
+    try {
+        $cfg = Get-NetIPConfiguration -ErrorAction Stop |
+            Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1
+        if ($cfg) { $ip = ($cfg.IPv4Address | Select-Object -First 1).IPAddress; if ($ip) { return $ip } }
+    } catch { }
+    try {
+        $nic = Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction Stop |
+            Where-Object { $_.IPEnabled -and $_.DefaultIPGateway } | Select-Object -First 1
+        if ($nic) { $ip = @($nic.IPAddress) | Where-Object { $_ -and $_ -notmatch ':' } | Select-Object -First 1; if ($ip) { return $ip } }
+    } catch { }
+    return $null
+}
+
+function Convert-CoraxServerUrl {
+    param([string]$BaseUrl)
+    $base = $BaseUrl.TrimEnd('/')
+    try {
+        $u = [uri]$base
+        if ($u.Host -in @('localhost', '127.0.0.1', '::1')) {
+            $ip = Get-CoraxPrimaryIPv4
+            if ($ip) { $ub = New-Object System.UriBuilder($u); $ub.Host = $ip; return $ub.Uri.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/') }
+        }
+    } catch { }
+    return $base
+}
+
 function Install-CoraxHelpdeskShortcut {
     param(
         [string]$ServerUrl,
@@ -26,7 +53,7 @@ function Install-CoraxHelpdeskShortcut {
     if ([string]::IsNullOrWhiteSpace($ServerUrl)) { return }
     $hostName = ([string]$Hostname).Trim()
     if (-not $hostName -or $hostName -eq 'unknown-host') { return }
-    $base = $ServerUrl.TrimEnd('/')
+    $base = Convert-CoraxServerUrl -BaseUrl $ServerUrl
     $pc = [uri]::EscapeDataString($hostName)
     $url = "$base/h#pc=$pc"
     $body = "[InternetShortcut]`r`nURL=$url`r`n"
@@ -36,11 +63,11 @@ function Install-CoraxHelpdeskShortcut {
         $tryIcon = Join-Path $sys 'imageres.dll'
         if (Test-Path -LiteralPath $tryIcon) { $icon = $tryIcon } else { $icon = Join-Path $sys 'shell32.dll' }
     }
+    $idx = 14
     if ($icon -and (Test-Path -LiteralPath $icon)) {
         $idx = if ($icon -match 'imageres\.dll$') { 81 } else { 14 }
         $body += "IconFile=$icon`r`nIconIndex=$idx`r`n"
     }
-    $names = @('Заявка CORAX.url', 'CORAX-ticket.url')
     $dirs = @()
     $pub = [Environment]::GetFolderPath('CommonDesktopDirectory')
     if ($pub) { $dirs += $pub }
@@ -59,15 +86,36 @@ function Install-CoraxHelpdeskShortcut {
                 if (Test-Path -LiteralPath $d) { $dirs += $d }
             }
     }
+    $explorer = Join-Path $env:SystemRoot 'explorer.exe'
     $written = 0
     foreach ($d in ($dirs | Select-Object -Unique)) {
-        foreach ($name in $names) {
+        # убрать старые/переименованные ярлыки
+        foreach ($old in @('Заявка в IT', 'Заявка CORAX', 'CORAX-ticket')) {
+            foreach ($ext in @('.lnk', '.url')) {
+                $op = Join-Path $d ($old + $ext)
+                if (Test-Path -LiteralPath $op) { try { Remove-Item -LiteralPath $op -Force -ErrorAction SilentlyContinue } catch { } }
+            }
+        }
+        $ok = $false
+        $lnk = Join-Path $d 'Оставить заявку.lnk'
+        try {
+            $w = New-Object -ComObject WScript.Shell
+            $sc = $w.CreateShortcut($lnk)
+            $sc.TargetPath = $explorer
+            $sc.Arguments = $url
+            $sc.WindowStyle = 1
+            if ($icon -and (Test-Path -LiteralPath $icon)) { $sc.IconLocation = "$icon,$idx" }
+            $sc.Description = 'Оставить заявку в IT'
+            $sc.Save()
+            if (Test-Path -LiteralPath $lnk) { $ok = $true }
+        } catch { }
+        if (-not $ok) {
             try {
-                [System.IO.File]::WriteAllText((Join-Path $d $name), $body, [Text.UTF8Encoding]::new($false))
-                $written++
-                break
+                [System.IO.File]::WriteAllText((Join-Path $d 'Оставить заявку.url'), $body, [Text.Encoding]::Unicode)
+                $ok = $true
             } catch { }
         }
+        if ($ok) { $written++ }
     }
     if ($written -gt 0) { Log "Helpdesk shortcut: $url ($written)" }
 }

@@ -1,4 +1,4 @@
-# Writes «Заявка CORAX.url» on the desktop with /h#pc=<this hostname>.
+﻿# Writes «Оставить заявку.url» on the desktop with /h#pc=<this hostname>.
 # Works on Windows 7+ (PowerShell 2). Kept as a fallback; the EXE creates the
 # shortcut after a successful inventory POST.
 $ErrorActionPreference = 'SilentlyContinue'
@@ -18,6 +18,18 @@ if ($env:COMPUTERNAME) { $hostName = $env:COMPUTERNAME.Trim() }
 if (-not $hostName -or $hostName -eq 'unknown-host') { exit 0 }
 
 $base = $server.TrimEnd('/')
+# Если сервер указан как localhost/127.x — подставить реальный IPv4 этой машины.
+try {
+    $u = [uri]$base
+    if (@('localhost', '127.0.0.1', '::1') -contains $u.Host) {
+        $ip = $null
+        try {
+            $nic = @(Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled -and $_.DefaultIPGateway })
+            if ($nic.Count -gt 0) { foreach ($a in @($nic[0].IPAddress)) { if ($a -and $a -notmatch ':') { $ip = $a; break } } }
+        } catch { }
+        if ($ip) { $ub = New-Object System.UriBuilder($u); $ub.Host = $ip; $base = $ub.Uri.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/') }
+    }
+} catch { }
 $pc = [uri]::EscapeDataString($hostName)
 $url = $base + '/h#pc=' + $pc
 $nl = "`r`n"
@@ -27,7 +39,8 @@ if (Test-Path -LiteralPath $icon) {
     $body += 'IconFile=' + $icon + $nl + 'IconIndex=0' + $nl
 }
 
-$name = 'Заявка CORAX.url'
+$name = 'Оставить заявку.url'
+$oldNames = @('Заявка в IT.lnk', 'Заявка CORAX.lnk', 'CORAX-ticket.lnk', 'Заявка в IT.url', 'Заявка CORAX.url', 'CORAX-ticket.url')
 $dirs = @()
 try {
     $pub = [Environment]::GetFolderPath('CommonDesktopDirectory')
@@ -54,10 +67,14 @@ if (-not $isSvc) {
     } catch { }
 }
 
-$utf8 = New-Object System.Text.UTF8Encoding $false
+$unicode = [System.Text.Encoding]::Unicode
 foreach ($d in $dirs) {
+    foreach ($old in $oldNames) {
+        $op = Join-Path $d $old
+        if (Test-Path $op) { try { Remove-Item -Path $op -Force -ErrorAction SilentlyContinue } catch { } }
+    }
     try {
-        [System.IO.File]::WriteAllText((Join-Path $d $name), $body, $utf8)
+        [System.IO.File]::WriteAllText((Join-Path $d $name), $body, $unicode)
     } catch { }
 }
 exit 0

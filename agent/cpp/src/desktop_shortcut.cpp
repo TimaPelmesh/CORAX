@@ -1,13 +1,69 @@
 #include "desktop_shortcut.hpp"
 #include "util.hpp"
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <shlobj.h>
+#include <iphlpapi.h>
 
 #include <cstdio>
 #include <string>
+#include <vector>
+
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 namespace {
+
+// Основной IPv4 текущей машины (адаптер с default gateway).
+std::string primary_ipv4() {
+  ULONG size = 0;
+  if (GetAdaptersInfo(nullptr, &size) != ERROR_BUFFER_OVERFLOW) return {};
+  std::vector<unsigned char> buf(size);
+  auto* info = reinterpret_cast<IP_ADAPTER_INFO*>(buf.data());
+  if (GetAdaptersInfo(info, &size) != NO_ERROR) return {};
+  std::string fallback;
+  for (IP_ADAPTER_INFO* a = info; a; a = a->Next) {
+    std::string ip = a->IpAddressList.IpAddress.String;
+    std::string gw = a->GatewayList.IpAddress.String;
+    if (ip.empty() || ip == "0.0.0.0") continue;
+    if (!gw.empty() && gw != "0.0.0.0") return ip;  // адаптер с шлюзом = основной
+    if (fallback.empty()) fallback = ip;
+  }
+  return fallback;
+}
+
+// Если хост localhost/127.x — подставить реальный IPv4 (агент на сервере -> IP сервера).
+std::string resolve_server_base(std::string base) {
+  std::string lc = util::to_lower(base);
+  size_t sch = lc.find("://");
+  if (sch == std::string::npos) return base;
+  size_t hs = sch + 3;
+  size_t he = base.find_first_of(":/", hs);
+  size_t host_len = (he == std::string::npos ? base.size() : he) - hs;
+  std::string host = lc.substr(hs, host_len);
+  if (host == "localhost" || host == "127.0.0.1" || host == "::1") {
+    std::string ip = primary_ipv4();
+    if (!ip.empty()) {
+      return base.substr(0, hs) + ip + (he == std::string::npos ? std::string() : base.substr(he));
+    }
+  }
+  return base;
+}
+
+void remove_old_shortcuts(const std::wstring& dir) {
+  const wchar_t* olds[] = {L"Заявка в IT", L"Заявка CORAX", L"CORAX-ticket"};
+  const wchar_t* exts[] = {L".lnk", L".url"};
+  for (const wchar_t* name : olds) {
+    for (const wchar_t* ext : exts) {
+      DeleteFileW((dir + L"\\" + name + ext).c_str());
+    }
+  }
+}
 
 bool is_service_account() {
   wchar_t name[256];
@@ -52,7 +108,8 @@ bool write_url(const std::wstring& dir, const std::string& url, const std::strin
   if (dir.empty()) return false;
   DWORD attr = GetFileAttributesW(dir.c_str());
   if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) return false;
-  const std::wstring path = dir + L"\\Заявка CORAX.url";
+  remove_old_shortcuts(dir);
+  const std::wstring path = dir + L"\\Оставить заявку.url";
   std::string body = "[InternetShortcut]\r\nURL=" + url + "\r\n";
   if (!icon.empty()) {
     body += "IconFile=" + icon + "\r\nIconIndex=0\r\n";
@@ -86,6 +143,7 @@ std::string ensure_helpdesk_shortcut(const std::string& server_url, const std::s
   if (base.empty() || host.empty() || util::to_lower(host) == "unknown-host") {
     return "shortcut=skipped";
   }
+  base = resolve_server_base(base);
 
   const std::string url = base + "/h#pc=" + percent_encode(host);
   const std::string icon = exe_path_for_icon();

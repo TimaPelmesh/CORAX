@@ -681,12 +681,40 @@ function Get-Ext-Processes {
 # Ярлык "Заявка в IT" на рабочий стол (как у штатного агента)
 # ----------------------------------------------------------------------------
 
+function Get-PrimaryIPv4 {
+    try {
+        $cfg = Get-NetIPConfiguration -ErrorAction Stop |
+            Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1
+        if ($cfg) { $ip = ($cfg.IPv4Address | Select-Object -First 1).IPAddress; if ($ip) { return $ip } }
+    } catch { }
+    try {
+        $nic = Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction Stop |
+            Where-Object { $_.IPEnabled -and $_.DefaultIPGateway } | Select-Object -First 1
+        if ($nic) { $ip = @($nic.IPAddress) | Where-Object { $_ -and $_ -notmatch ':' } | Select-Object -First 1; if ($ip) { return $ip } }
+    } catch { }
+    return $null
+}
+
+function Convert-ServerUrl {
+    param([string]$BaseUrl)
+    $b = $BaseUrl.TrimEnd('/')
+    try {
+        $u = [uri]$b
+        if ($u.Host -in @('localhost', '127.0.0.1', '::1')) {
+            $ip = Get-PrimaryIPv4
+            if ($ip) { $ub = New-Object System.UriBuilder($u); $ub.Host = $ip; return $ub.Uri.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/') }
+        }
+    } catch { }
+    return $b
+}
+
 function Install-HelpdeskShortcut {
     param([string]$ServerUrl, [string]$Hostname)
     if ([string]::IsNullOrWhiteSpace($ServerUrl)) { return }
     $host2 = ([string]$Hostname).Trim()
     if (-not $host2) { return }
-    $url = ("{0}/h#pc={1}" -f $ServerUrl.TrimEnd('/'), [uri]::EscapeDataString($host2))
+    $base = Convert-ServerUrl -BaseUrl $ServerUrl
+    $url = ("{0}/h#pc={1}" -f $base, [uri]::EscapeDataString($host2))
     $sys = Join-Path $env:SystemRoot 'System32'
     $icon = Join-Path $sys 'imageres.dll'
     $idx = 81
@@ -706,7 +734,14 @@ function Install-HelpdeskShortcut {
     $wsh = $null
     try { $wsh = New-Object -ComObject WScript.Shell } catch { }
     foreach ($dir in $dirs) {
-        $path = Join-Path $dir 'Заявка в IT.lnk'
+        # убрать старые/переименованные ярлыки
+        foreach ($old in @('Заявка в IT', 'Заявка CORAX', 'CORAX-ticket')) {
+            foreach ($ext in @('.lnk', '.url')) {
+                $op = Join-Path $dir ($old + $ext)
+                if (Test-Path -LiteralPath $op) { try { Remove-Item -LiteralPath $op -Force -ErrorAction SilentlyContinue } catch { } }
+            }
+        }
+        $path = Join-Path $dir 'Оставить заявку.lnk'
         try {
             if ($wsh) {
                 $sc = $wsh.CreateShortcut($path)
@@ -720,14 +755,14 @@ function Install-HelpdeskShortcut {
         } catch { }
         # fallback .url
         try {
-            $urlPath = Join-Path $dir 'Заявка в IT.url'
+            $urlPath = Join-Path $dir 'Оставить заявку.url'
             $body = "[InternetShortcut]`r`nURL=$url`r`nIconFile=$icon`r`nIconIndex=$idx`r`n"
             [System.IO.File]::WriteAllText($urlPath, $body, [Text.Encoding]::Unicode)
             if (Test-Path -LiteralPath $urlPath) { $written++ }
         } catch { }
     }
     if ($wsh) { try { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($wsh) } catch { } }
-    if ($written -gt 0) { Write-Ok ("Ярлык 'Заявка в IT' создан ({0}) -> {1}" -f $written, $url) }
+    if ($written -gt 0) { Write-Ok ("Ярлык 'Оставить заявку' создан ({0}) -> {1}" -f $written, $url) }
     else { Write-Warn2 'Ярлык на рабочий стол создать не удалось' }
 }
 

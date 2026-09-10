@@ -1,4 +1,4 @@
-# Windows 7 / PowerShell 2.0 compatible inventory sender.
+﻿# Windows 7 / PowerShell 2.0 compatible inventory sender.
 # Do not fail the whole run on partial WMI/registry errors: we still want to POST what we can.
 $ErrorActionPreference = 'Continue'
 $INV_DEBUG = $false
@@ -9,6 +9,35 @@ function Log([string]$Msg) {
     Write-Host ("[{0}] {1}" -f $ts, $Msg)
 }
 
+function Get-CoraxPrimaryIPv4Win7 {
+    try {
+        $nic = @(Get-WmiObject Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPEnabled -and $_.DefaultIPGateway })
+        if ($nic.Count -gt 0) {
+            foreach ($ip in @($nic[0].IPAddress)) {
+                if ($ip -and $ip -notmatch ':') { return $ip }
+            }
+        }
+    } catch { }
+    return $null
+}
+
+function Convert-CoraxServerUrlWin7 {
+    param([string]$BaseUrl)
+    $base = $BaseUrl.TrimEnd('/')
+    try {
+        $u = [uri]$base
+        if (@('localhost', '127.0.0.1', '::1') -contains $u.Host) {
+            $ip = Get-CoraxPrimaryIPv4Win7
+            if ($ip) {
+                $ub = New-Object System.UriBuilder($u)
+                $ub.Host = $ip
+                return $ub.Uri.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/')
+            }
+        }
+    } catch { }
+    return $base
+}
+
 function Install-CoraxHelpdeskShortcut {
     param(
         [string]$ServerUrl,
@@ -17,7 +46,7 @@ function Install-CoraxHelpdeskShortcut {
     if (-not $ServerUrl -or $ServerUrl.Trim().Length -eq 0) { return }
     if (-not $Hostname -or $Hostname.Trim().Length -eq 0) { return }
     if ($Hostname.Trim() -eq 'unknown-host') { return }
-    $base = $ServerUrl.TrimEnd('/')
+    $base = Convert-CoraxServerUrlWin7 -BaseUrl $ServerUrl
     $pc = [uri]::EscapeDataString($Hostname.Trim())
     $url = $base + '/h#pc=' + $pc
     $nl = "`r`n"
@@ -29,7 +58,8 @@ function Install-CoraxHelpdeskShortcut {
     if (Test-Path $icon) {
         $body = $body + 'IconFile=' + $icon + $nl + 'IconIndex=' + $idx + $nl
     }
-    $names = @('Заявка в IT.lnk', 'Заявка CORAX.lnk', 'CORAX-ticket.lnk', 'Заявка в IT.url', 'Заявка CORAX.url', 'CORAX-ticket.url')
+    $names = @('Оставить заявку.lnk', 'Оставить заявку.url')
+    $oldNames = @('Заявка в IT.lnk', 'Заявка CORAX.lnk', 'CORAX-ticket.lnk', 'Заявка в IT.url', 'Заявка CORAX.url', 'CORAX-ticket.url')
     $dirs = @()
     try { $pub = [Environment]::GetFolderPath('CommonDesktopDirectory'); if ($pub -and (Test-Path $pub)) { $dirs += $pub } } catch { }
     try { $userDesk = [Environment]::GetFolderPath('Desktop'); if ($userDesk -and (Test-Path $userDesk)) { $dirs += $userDesk } } catch { }
@@ -61,6 +91,10 @@ function Install-CoraxHelpdeskShortcut {
     foreach ($d in $dirs) {
         if ($seen.ContainsKey($d)) { continue }
         $seen[$d] = $true
+        foreach ($old in $oldNames) {
+            $oldPath = Join-Path $d $old
+            if (Test-Path $oldPath) { try { Remove-Item -Path $oldPath -Force -ErrorAction SilentlyContinue } catch { } }
+        }
         foreach ($name in $names) {
             $path = Join-Path $d $name
             $ok = $false

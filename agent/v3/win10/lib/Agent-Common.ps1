@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # Shared helpers for CORAX Agent
 
 function Log([string]$Msg) {
@@ -248,6 +248,56 @@ function Save-CoraxInternetShortcut {
     }
 }
 
+function Get-CoraxPrimaryIPv4 {
+    # Основной IPv4 текущей машины (адаптер с default gateway).
+    try {
+        $cfg = Get-NetIPConfiguration -ErrorAction Stop |
+            Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
+            Select-Object -First 1
+        if ($cfg) {
+            $ip = ($cfg.IPv4Address | Select-Object -First 1).IPAddress
+            if ($ip) { return $ip }
+        }
+    } catch { }
+    try {
+        $nic = Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction Stop |
+            Where-Object { $_.IPEnabled -and $_.DefaultIPGateway } | Select-Object -First 1
+        if ($nic) {
+            $ip = @($nic.IPAddress) | Where-Object { $_ -and $_ -notmatch ':' } | Select-Object -First 1
+            if ($ip) { return $ip }
+        }
+    } catch { }
+    return $null
+}
+
+function Convert-CoraxServerUrl {
+    # Если хост localhost/127.x — подставляем реальный IPv4 (агент на сервере -> IP сервера).
+    param([string]$BaseUrl)
+    $base = $BaseUrl.TrimEnd('/')
+    try {
+        $u = [uri]$base
+        if ($u.Host -in @('localhost', '127.0.0.1', '::1')) {
+            $ip = Get-CoraxPrimaryIPv4
+            if ($ip) {
+                $ub = New-Object System.UriBuilder($u)
+                $ub.Host = $ip
+                return $ub.Uri.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/')
+            }
+        }
+    } catch { }
+    return $base
+}
+
+function Remove-CoraxOldShortcuts {
+    param([string]$Dir)
+    foreach ($old in @('Заявка в IT', 'Заявка CORAX', 'CORAX-ticket')) {
+        foreach ($ext in @('.lnk', '.url')) {
+            $p = Join-Path $Dir ($old + $ext)
+            if (Test-Path -LiteralPath $p) { try { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue } catch { } }
+        }
+    }
+}
+
 function Install-CoraxHelpdeskShortcut {
     param(
         [string]$ServerUrl,
@@ -257,7 +307,7 @@ function Install-CoraxHelpdeskShortcut {
     if ([string]::IsNullOrWhiteSpace($ServerUrl)) { return }
     $hostName = ([string]$Hostname).Trim()
     if (-not $hostName -or $hostName -eq 'unknown-host') { return }
-    $base = $ServerUrl.TrimEnd('/')
+    $base = Convert-CoraxServerUrl -BaseUrl $ServerUrl
     $pc = [uri]::EscapeDataString($hostName)
     $url = "$base/h#pc=$pc"
     $icon = $IconPath
@@ -269,15 +319,12 @@ function Install-CoraxHelpdeskShortcut {
         else { $icon = Join-Path $sys 'shell32.dll'; $idx = 14 }
     }
     $names = @(
-        'Заявка в IT.lnk',
-        'Заявка CORAX.lnk',
-        'CORAX-ticket.lnk',
-        'Заявка в IT.url',
-        'Заявка CORAX.url',
-        'CORAX-ticket.url'
+        'Оставить заявку.lnk',
+        'Оставить заявку.url'
     )
     $written = 0
     foreach ($d in (Get-CoraxDesktopDirs)) {
+        Remove-CoraxOldShortcuts -Dir $d
         foreach ($name in $names) {
             $path = Join-Path $d $name
             if (Save-CoraxInternetShortcut -Path $path -Url $url -IconFile $icon -IconIndex $idx) {
