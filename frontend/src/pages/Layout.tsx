@@ -106,6 +106,8 @@ export function Layout() {
     </>
   )
 
+  const settingsFlyoutOpen = openGroups['nav.settings'] === true
+
   return (
     <div className="app-layout-bg relative isolate flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-[var(--color-bg)] lg:flex-row">
       <header className="safe-area-pt relative z-10 flex h-14 shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 lg:hidden">
@@ -163,7 +165,7 @@ export function Layout() {
         <button
           type="button"
           className={`sidebar-edge-toggle hidden lg:flex fixed top-24 z-[15] items-center rounded-r-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-2.5 text-[11px] font-semibold text-[var(--color-fg-muted)] transition-all duration-300 hover:bg-[var(--color-surface-muted)] ${
-            desktopNavHidden ? 'left-0' : 'left-[15.9rem]'
+            desktopNavHidden ? 'left-0' : settingsFlyoutOpen ? 'left-[31.9rem]' : 'left-[15.9rem]'
           }`}
           onClick={() => setDesktopNavHidden((v) => !v)}
           title={desktopNavHidden ? t('nav.showSidebar') : t('nav.hideSidebar')}

@@ -265,6 +265,11 @@ body {
   transform: rotate(180deg);
 }
 
+.sidebar-flyout-dock .sidebar-link {
+  min-height: 2.4rem;
+  padding: 0.5rem 0.65rem;
+}
+
 .sidebar-profile-btn {
   display: flex;
   flex: 1;

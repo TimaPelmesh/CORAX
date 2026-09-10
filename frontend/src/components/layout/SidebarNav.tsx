@@ -47,10 +47,10 @@ export function SidebarNavLink({
   )
 }
 
-export function NavBlock({ title, children }: { title: string; children: ReactNode }) {
+export function NavBlock({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div>
-      <div className="sidebar-section-label">{title}</div>
+      {title ? <div className="sidebar-section-label">{title}</div> : null}
       <div className="flex flex-col gap-0.5">{children}</div>
     </div>
   )
@@ -122,7 +122,7 @@ export function SidebarGroupButton({
   )
 }
 
-type FlyoutPos = { top: number; left: number; maxHeight: number }
+type FlyoutPos = { top: number; left: number; maxHeight: number; dock: boolean }
 
 export function SidebarFlyoutGroup({
   label,
@@ -160,6 +160,18 @@ export function SidebarFlyoutGroup({
       const el = anchorRef.current
       if (!el) return
       const r = el.getBoundingClientRect()
+      const dock = window.matchMedia('(min-width: 1024px)').matches
+      if (dock) {
+        const sidebar = document.getElementById('app-sidebar')
+        const sr = sidebar?.getBoundingClientRect()
+        setPos({
+          top: 0,
+          left: Math.round(sr?.right ?? r.right),
+          maxHeight: window.innerHeight,
+          dock: true,
+        })
+        return
+      }
       const gap = 8
       const margin = 8
       const panelWidth = 248
@@ -173,8 +185,7 @@ export function SidebarFlyoutGroup({
       if (spaceBelow < desiredMax) {
         top = Math.max(margin, window.innerHeight - margin - Math.min(desiredMax, window.innerHeight - margin * 2))
       }
-      const maxHeight = window.innerHeight - margin - top
-      setPos({ top, left, maxHeight })
+      setPos({ top, left, maxHeight: window.innerHeight - margin - top, dock: false })
     }
     update()
     window.addEventListener('resize', update)
@@ -203,6 +214,26 @@ export function SidebarFlyoutGroup({
     }
   }, [open, onClose])
 
+  const links = (
+    <div className={`flex flex-col ${pos?.dock ? 'gap-1' : 'gap-0.5'}`}>
+      {items.map((item) => (
+        <SidebarNavLink
+          key={item.to}
+          to={item.to}
+          end={item.end}
+          icon={item.icon}
+          badge={item.badgeKey ? navCounts?.[item.badgeKey] : undefined}
+          onNavigate={() => {
+            onNavigate()
+            onClose()
+          }}
+        >
+          {t(item.labelKey)}
+        </SidebarNavLink>
+      ))}
+    </div>
+  )
+
   return (
     <div ref={anchorRef}>
       <SidebarGroupButton
@@ -217,28 +248,20 @@ export function SidebarFlyoutGroup({
         ? createPortal(
             <div
               ref={panelRef}
-              className="sidebar-scroll fixed z-[80] w-[15.5rem] overflow-y-auto overscroll-contain rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-xl shadow-black/10"
-              style={{ top: pos.top, left: pos.left, maxHeight: pos.maxHeight }}
+              className={
+                pos.dock
+                  ? 'sidebar-flyout-dock fixed z-[80] flex h-dvh w-[16rem] flex-col overflow-hidden border-y-0 border-l-0 border-r border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-4'
+                  : 'sidebar-scroll fixed z-[80] w-[15.5rem] overflow-y-auto overscroll-contain rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-xl shadow-black/10'
+              }
+              style={
+                pos.dock
+                  ? { top: 0, left: pos.left }
+                  : { top: pos.top, left: pos.left, maxHeight: pos.maxHeight }
+              }
               role="menu"
             >
               <div className="sidebar-section-label">{label}</div>
-              <div className="flex flex-col gap-0.5">
-                {items.map((item) => (
-                  <SidebarNavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    icon={item.icon}
-                    badge={item.badgeKey ? navCounts?.[item.badgeKey] : undefined}
-                    onNavigate={() => {
-                      onNavigate()
-                      onClose()
-                    }}
-                  >
-                    {t(item.labelKey)}
-                  </SidebarNavLink>
-                ))}
-              </div>
+              {links}
             </div>,
             document.body,
           )
@@ -271,7 +294,7 @@ export function SidebarSectionList({
         if (section.flyout) {
           const flyoutOpen = openGroups[section.titleKey] === true
           return (
-            <div key={section.titleKey}>
+            <div key={section.titleKey} className="mt-auto border-t border-[var(--color-border)] pt-2">
               <SidebarFlyoutGroup
                 label={sectionTitle}
                 icon={section.icon}
@@ -290,7 +313,7 @@ export function SidebarSectionList({
         return (
           <div key={section.titleKey}>
             {section.collapsible === false ? (
-              <NavBlock title={sectionTitle}>
+              <NavBlock title={section.hideTitle ? undefined : sectionTitle}>
                 {section.items.map((item) => (
                   <SidebarNavLink
                     key={item.to}
