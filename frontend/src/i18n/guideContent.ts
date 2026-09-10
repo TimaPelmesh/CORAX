@@ -52,6 +52,10 @@ const GUIDE_RU: GuideCopy = {
           title: 'Типичный день',
           body: 'Дашборд → проблемные ПК/заявки → карточка ПК или заявка → при необходимости сеть/принтеры/склад.',
         },
+        {
+          title: 'Меню слева',
+          body: 'В боковой панели: парк (дашборд, риски, ПК, ПО, принтеры, сеть, склад), заявки, база знаний. Кнопка «Настройки» — последняя: на ПК справа выезжает второе меню (ИИ агент … HTTPS), без прокрутки списка.',
+        },
       ],
       links: [{ to: '/', label: 'Дашборд' }],
     },
@@ -98,7 +102,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'Карточка ПК',
-          body: 'Железо, диски, сеть, ПО, периферия, история изменений, заявки по этому ПК, кто последний сидел в домене.',
+          body: 'Железо, диски, сеть, ПО, периферия, история изменений, заявки по этому ПК, кто последний сидел в домене. Если ПК прислал расширенный отчёт — ещё аптайм, часовой пояс, брандмауэр, Defender, разрешение экрана, активация Windows, активные сессии, мониторы, планки RAM, SMART (температура/износ), порты, задачи, аварии, истекающие сертификаты, риски RDP/SMB1/UAC.',
         },
         {
           title: 'Теги ПК',
@@ -155,7 +159,7 @@ const GUIDE_RU: GuideCopy = {
         },
         {
           title: 'ZIP Windows — первый запуск',
-          body: 'Распакуйте архив в %ProgramData%\\CORAX\\agent (не в каталог сервера).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nОкно не должно закрываться само: splash-анимация выключена (CORAX_SPLASH=1 только если нужна).\nНа рабочем столе появится ярлык «Заявка CORAX» (или CORAX-ticket) на http://СЕРВЕР:3000/h#pc=ИМЯ-ПК.\nДля планировщика: corax_send.bat nopause\nПроверка: «Компьютеры» — hostname и «последний отчёт».',
+          body: 'Распакуйте архив в %ProgramData%\\CORAX\\agent (не в каталог сервера).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nОкно не должно закрываться само: splash-анимация выключена (CORAX_SPLASH=1 только если нужна).\nНа рабочем столе появится ярлык «Оставить заявку» на http://LAN-IP:3000/h#pc=ИМЯ-ПК (не localhost).\nДля планировщика: corax_send.bat nopause\nПроверка: «Компьютеры» — hostname и «последний отчёт».',
         },
         {
           title: 'ZIP Windows — расписание',
@@ -217,6 +221,30 @@ const GUIDE_RU: GuideCopy = {
         {
           title: 'Типичные ошибки (Linux)',
           body: 'Запуск из /opt/corax/agent/linux — неверно. ZIP только в /opt/corax-agent.\nunzip -o поверх живого агента затирает токен — пользуйтесь update_scripts.sh.\nURL 127.0.0.1 с других хостов не доходит. Собирайте по LAN-IP.',
+        },
+      ],
+      links: [
+        { to: '/settings/agent-bundle', label: 'Сборка агента' },
+        { to: '/computers', label: 'Компьютеры' },
+      ],
+    },
+    {
+      id: 'agent-audit',
+      title: 'Полный аудит Windows',
+      summary:
+        'Отдельный ручной сборщик — не для групповых политик. Запускаете сами на машине, когда нужен максимум данных.',
+      steps: [
+        {
+          title: 'Чем отличается от штатного агента',
+          body: 'Штатный ZIP с панели — тихий, для раскатки и расписания. Полный аудит лежит в репозитории: agent/audit-win/corax_audit.bat + Corax-FullAudit.ps1. Двойной клик → UAC → одно окно, сбор hw/health/ops/security, отправка того же POST /api/v1/agent/inventory.',
+        },
+        {
+          title: 'Что ещё собирает',
+          body: 'SMART (температура, износ, часы), мониторы, планки RAM, BitLocker, Defender, брандмауэр, локальные админы, RDP/SMB1/UAC, активация Windows, слушающие порты, автозапуск, задачи, аварии/BSOD, история USB, истекающие сертификаты. Без прав админа часть блоков пропускается, сбор не падает.',
+        },
+        {
+          title: 'Ярлык после отправки',
+          body: 'После успешной отправки на рабочий стол кладётся «Оставить заявку» → http://LAN-IP:3000/h#pc=ИМЯ-ПК. Если в URL агента был localhost — подставляется IPv4 сервера.',
         },
       ],
       links: [
@@ -332,9 +360,27 @@ const GUIDE_RU: GuideCopy = {
           body: 'Заявка создаётся сразу; AI в фоне ставит категорию и предлагает тему ассистенту. Форма /h должна быть включена в конфигурации сервера.',
         },
         {
-          title: 'Пример ссылки',
-          body: 'Агент инвентаризации после чтения имени ПК кладёт на рабочий стол ярлык «Заявка CORAX» вида http://СЕРВЕР:3000/h#pc=ИМЯ-ПК. Пользователь открывает его — компьютер уже вписан.',
+          title: 'Ярлык на рабочем столе',
+          body: 'После отчёта агент кладёт ярлык «Оставить заявку». Ссылка: http://LAN-IP:3000/h#pc=ИМЯ-ПК — IP сервера, не localhost. Ярлыки со старыми именами удаляются при следующем запуске.',
         },
+      ],
+    },
+    {
+      id: 'knowledge',
+      title: 'База знаний',
+      summary: 'Пять вкладок: карта здания, это руководство, WikiRAG, заметки, данные Zabbix.',
+      steps: [
+        {
+          title: 'Вкладки',
+          body: 'База знаний → Карта здания (планировки), Руководство (этот текст), Wiki / Ассистент (чат по документам), Заметки, Zabbix (данные мониторинга по хостам). Склад вынесен в парк: /warehouse.',
+        },
+      ],
+      links: [
+        { to: '/knowledge-base/sitemap', label: 'Карта здания' },
+        { to: '/knowledge-base/guide', label: 'Руководство' },
+        { to: '/knowledge-base/wikirag', label: 'WikiRAG' },
+        { to: '/knowledge-base/notes', label: 'Заметки' },
+        { to: '/knowledge-base/zabbix', label: 'Zabbix' },
       ],
     },
     {
@@ -413,6 +459,25 @@ const GUIDE_RU: GuideCopy = {
       links: [{ to: '/knowledge-base/notes', label: 'Заметки' }],
     },
     {
+      id: 'zabbix',
+      title: 'Zabbix',
+      summary: 'Данные мониторинга в базе знаний и подключение сервера в настройках.',
+      steps: [
+        {
+          title: 'Данные',
+          body: 'База знаний → Zabbix: проблемы и метрики по хостам, которые сопоставлены с ПК CORAX. С карточки ПК есть переход сюда.',
+        },
+        {
+          title: 'Подключение',
+          body: 'Админ: Настройки → Zabbix — URL API, учётка, проверка связи. Без этой настройки вкладка данных пустая.',
+        },
+      ],
+      links: [
+        { to: '/knowledge-base/zabbix', label: 'Данные Zabbix' },
+        { to: '/settings/zabbix', label: 'Настройки Zabbix' },
+      ],
+    },
+    {
       id: 'search',
       title: 'Глобальный поиск',
       summary: 'Строка в шапке панели.',
@@ -430,7 +495,11 @@ const GUIDE_RU: GuideCopy = {
       steps: [
         {
           title: 'Профиль',
-          body: 'Аватар в правом верхнем углу: смена темы, уведомления о назначениях, настройки интерфейса и выход. Блок «выйти» внизу бокового меню больше не используется.',
+          body: 'Аватар в правом верхнем углу: тема, уведомления, настройки интерфейса (отдельное модальное окно) и выход. «Настройки» в профиле — не боковое меню интеграций.',
+        },
+        {
+          title: 'Боковое меню настроек',
+          body: 'Последняя кнопка слева (шестерёнка). На ПК справа выезжает полный список: ИИ агент, теги, категории, пользователи, LDAP, Bitrix24, Zabbix, БД, GLPI, токены, сборка агента, Wake-on-LAN, HTTPS.',
         },
         {
           title: 'Пользователи',
@@ -455,8 +524,16 @@ const GUIDE_RU: GuideCopy = {
       ],
       links: [
         { to: '/users', label: 'Пользователи' },
+        { to: '/settings/llm', label: 'ИИ агент' },
+        { to: '/settings/tags', label: 'Теги ПК' },
         { to: '/settings/ldap', label: 'LDAP' },
+        { to: '/settings/bitrix24', label: 'Bitrix24' },
+        { to: '/settings/zabbix', label: 'Zabbix' },
         { to: '/settings/database', label: 'БД / бэкап' },
+        { to: '/settings/glpi', label: 'GLPI' },
+        { to: '/settings/agent-tokens', label: 'Токены' },
+        { to: '/settings/agent-bundle', label: 'Сборка агента' },
+        { to: '/settings/wol', label: 'Wake-on-LAN' },
         { to: '/settings/https', label: 'HTTPS' },
       ],
     },
@@ -492,6 +569,10 @@ const GUIDE_EN: GuideCopy = {
         {
           title: 'Typical day',
           body: 'Dashboard → problem PCs/tickets → PC card or ticket → network/printers/warehouse if needed.',
+        },
+        {
+          title: 'Left menu',
+          body: 'Sidebar: fleet (dashboard, risks, PCs, software, printers, network, warehouse), tickets, knowledge base. Settings is last: on desktop a second pane slides out to the right (AI agent … HTTPS), no scrollbar.',
         },
       ],
       links: [{ to: '/', label: 'Dashboard' }],
@@ -539,7 +620,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'PC card',
-          body: 'Hardware, disks, network, software, peripherals, change history, related tickets, last domain user.',
+          body: 'Hardware, disks, network, software, peripherals, change history, related tickets, last domain user. An extended report also shows uptime, timezone, firewall, Defender, screen resolution, Windows activation, sessions, monitors, RAM sticks, SMART (temp/wear), ports, tasks, faults, expiring certificates, and RDP/SMB1/UAC risks.',
         },
         {
           title: 'PC tags',
@@ -596,7 +677,7 @@ const GUIDE_EN: GuideCopy = {
         },
         {
           title: 'ZIP Windows — first run',
-          body: 'Unpack to %ProgramData%\\CORAX\\agent (not the server tree).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nThe window must stay open: splash animation is off (set CORAX_SPLASH=1 only if you want it).\nA “CORAX ticket” (or CORAX-ticket) shortcut appears on the desktop: http://SERVER:3000/h#pc=HOSTNAME.\nScheduler: corax_send.bat nopause\nCheck: Computers — hostname and “last report”.',
+          body: 'Unpack to %ProgramData%\\CORAX\\agent (not the server tree).\ncd /d %ProgramData%\\CORAX\\agent\ncorax_send.bat\nThe window must stay open: splash animation is off (set CORAX_SPLASH=1 only if you want it).\nA “Оставить заявку” shortcut appears on the desktop: http://LAN-IP:3000/h#pc=HOSTNAME (not localhost).\nScheduler: corax_send.bat nopause\nCheck: Computers — hostname and “last report”.',
         },
         {
           title: 'ZIP Windows — schedule',
@@ -658,6 +739,30 @@ const GUIDE_EN: GuideCopy = {
         {
           title: 'Typical Linux mistakes',
           body: 'Launch from /opt/corax/agent/linux is wrong. Put the ZIP in /opt/corax-agent.\nunzip -o over a live agent wipes the token — use update_scripts.sh.\nURL 127.0.0.1 never reaches other hosts. Build on the LAN IP.',
+        },
+      ],
+      links: [
+        { to: '/settings/agent-bundle', label: 'Agent build' },
+        { to: '/computers', label: 'Computers' },
+      ],
+    },
+    {
+      id: 'agent-audit',
+      title: 'Windows full audit',
+      summary:
+        'A separate hands-on collector — not for GPO. Run it yourself when you need the maximum snapshot.',
+      steps: [
+        {
+          title: 'How it differs',
+          body: 'The panel ZIP is quiet and meant for rollout/schedule. Full audit lives in the repo: agent/audit-win/corax_audit.bat + Corax-FullAudit.ps1. Double-click → UAC → one window, collect hw/health/ops/security, POST the same /api/v1/agent/inventory payload.',
+        },
+        {
+          title: 'Extra fields',
+          body: 'SMART (temp, wear, hours), monitors, RAM sticks, BitLocker, Defender, firewall, local admins, RDP/SMB1/UAC, Windows activation, listening ports, autoruns, tasks, BSOD/faults, USB history, expiring certificates. Without admin rights some blocks are skipped; the run does not crash.',
+        },
+        {
+          title: 'Shortcut after send',
+          body: 'After a successful POST the desktop gets “Оставить заявку” → http://LAN-IP:3000/h#pc=HOSTNAME. If the agent URL was localhost, the server IPv4 is substituted.',
         },
       ],
       links: [
@@ -773,9 +878,27 @@ const GUIDE_EN: GuideCopy = {
           body: 'Ticket is created immediately; AI later sets category and suggests a title. The /h form must be enabled in server configuration.',
         },
         {
-          title: 'Link example',
-          body: 'After the inventory agent reads the PC name it drops a “CORAX ticket” shortcut on the desktop: http://SERVER:3000/h#pc=PC-NAME. Opening it already identifies the computer.',
+          title: 'Desktop shortcut',
+          body: 'After a report the agent drops “Оставить заявку”. Link: http://LAN-IP:3000/h#pc=PC-NAME — the server IP, not localhost. Shortcuts with the old names are removed on the next run.',
         },
+      ],
+    },
+    {
+      id: 'knowledge',
+      title: 'Knowledge base',
+      summary: 'Five tabs: building map, this guide, WikiRAG, notes, Zabbix data.',
+      steps: [
+        {
+          title: 'Tabs',
+          body: 'Knowledge base → Building map (floor plans), Guide (this text), Wiki / Assistant (chat over documents), Notes, Zabbix (monitoring data for matched hosts). Warehouse lives under the fleet: /warehouse.',
+        },
+      ],
+      links: [
+        { to: '/knowledge-base/sitemap', label: 'Building map' },
+        { to: '/knowledge-base/guide', label: 'Guide' },
+        { to: '/knowledge-base/wikirag', label: 'WikiRAG' },
+        { to: '/knowledge-base/notes', label: 'Notes' },
+        { to: '/knowledge-base/zabbix', label: 'Zabbix' },
       ],
     },
     {
@@ -854,6 +977,25 @@ const GUIDE_EN: GuideCopy = {
       links: [{ to: '/knowledge-base/notes', label: 'Notes' }],
     },
     {
+      id: 'zabbix',
+      title: 'Zabbix',
+      summary: 'Monitoring data in the knowledge base and the server connection under Settings.',
+      steps: [
+        {
+          title: 'Data',
+          body: 'Knowledge base → Zabbix: problems and metrics for hosts matched to CORAX PCs. The PC card links here.',
+        },
+        {
+          title: 'Connection',
+          body: 'Admin: Settings → Zabbix — API URL, account, connection check. Without this the data tab stays empty.',
+        },
+      ],
+      links: [
+        { to: '/knowledge-base/zabbix', label: 'Zabbix data' },
+        { to: '/settings/zabbix', label: 'Zabbix settings' },
+      ],
+    },
+    {
       id: 'search',
       title: 'Global search',
       summary: 'Search box in the top bar.',
@@ -871,7 +1013,11 @@ const GUIDE_EN: GuideCopy = {
       steps: [
         {
           title: 'Profile',
-          body: 'Avatar in the top-right: theme, assignment notifications, interface settings, and logout. The old sidebar logout block is gone.',
+          body: 'Avatar in the top-right: theme, notifications, interface settings (a full modal), and logout. Profile settings are not the integrations flyout.',
+        },
+        {
+          title: 'Settings flyout',
+          body: 'Last button on the left (gear). On desktop a full list slides out: AI agent, tags, categories, users, LDAP, Bitrix24, Zabbix, DB, GLPI, tokens, agent build, Wake-on-LAN, HTTPS.',
         },
         {
           title: 'Users',
@@ -896,8 +1042,16 @@ const GUIDE_EN: GuideCopy = {
       ],
       links: [
         { to: '/users', label: 'Users' },
+        { to: '/settings/llm', label: 'AI agent' },
+        { to: '/settings/tags', label: 'PC tags' },
         { to: '/settings/ldap', label: 'LDAP' },
+        { to: '/settings/bitrix24', label: 'Bitrix24' },
+        { to: '/settings/zabbix', label: 'Zabbix' },
         { to: '/settings/database', label: 'DB / backup' },
+        { to: '/settings/glpi', label: 'GLPI' },
+        { to: '/settings/agent-tokens', label: 'Tokens' },
+        { to: '/settings/agent-bundle', label: 'Agent build' },
+        { to: '/settings/wol', label: 'Wake-on-LAN' },
         { to: '/settings/https', label: 'HTTPS' },
       ],
     },
@@ -906,4 +1060,21 @@ const GUIDE_EN: GuideCopy = {
 
 export function guideCopy(locale: 'ru' | 'en'): GuideCopy {
   return locale === 'en' ? GUIDE_EN : GUIDE_RU
+}
+
+/** Search used by the in-app Guide tab. Exported so tests match the UI. */
+export function filterGuideSections(sections: GuideSection[], query: string): GuideSection[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return sections
+  return sections
+    .map((section) => {
+      const titleHit = section.title.toLowerCase().includes(q) || section.summary.toLowerCase().includes(q)
+      const steps = section.steps.filter(
+        (step) => step.title.toLowerCase().includes(q) || step.body.toLowerCase().includes(q),
+      )
+      if (titleHit) return section
+      if (steps.length === 0) return null
+      return { ...section, steps }
+    })
+    .filter((s): s is GuideSection => s != null)
 }

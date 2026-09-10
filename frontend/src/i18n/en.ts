@@ -290,7 +290,7 @@ export const en: MessageTree = {
     statusCreated: 'Ticket created',
     statusSkipped: 'No ticket',
     enabled: 'Handler enabled',
-    enabledHint: 'Users open the desktop CORAX ticket shortcut and create a ticket immediately. AI classifies category in the background.',
+    enabledHint: 'Users open the desktop “Оставить заявку” shortcut and create a ticket immediately. AI classifies category in the background.',
     processorMode: 'Processor server',
     modeLocal: 'This CORAX',
     modeRemote: 'Remote server',
@@ -321,7 +321,7 @@ export const en: MessageTree = {
     secretCopied: 'Secret copied',
     intakeHint: 'Client API endpoint (POST)',
     shortcutHint: 'Shortcut URL for end users',
-    shortcutHelp: 'The inventory agent drops a “CORAX ticket” desktop shortcut with /h#pc=HOSTNAME already filled in. Open that — no extra PC detection needed.',
+    shortcutHelp: 'The inventory agent drops an “Оставить заявку” desktop shortcut with /h#pc=HOSTNAME already filled in. Open that — no extra PC detection needed.',
     copyEndpoint: 'Copy URL',
     endpointCopied: 'URL copied',
     save: 'Save settings',
@@ -2436,7 +2436,7 @@ export const en: MessageTree = {
     win7Notice:
       'Base profile: WMI, software registry, PnP peripherals. Extended modules (patches, BitLocker, Docker, etc.) are available only in the Windows 10/11 build.',
     windowsZipNotice:
-      'The canonical Windows agent. corax_send.bat picks Win7 vs 10/11. Splash animation is off by default (it used to close the cmd window). After a run, a “CORAX ticket” desktop shortcut opens /h with this PC name already filled in. Updates: update_scripts.bat — keeps agent_env.bat.',
+      'The canonical Windows agent. corax_send.bat picks Win7 vs 10/11. Splash animation is off by default (it used to close the cmd window). After a run, an “Оставить заявку” desktop shortcut opens /h with this PC name already filled in (server LAN IP, not localhost). Updates: update_scripts.bat — keeps agent_env.bat.',
     collectionLevel: 'Collection level',
     levelFull: 'Full',
     levelFullHint: 'All modules: network, patches, security, Office, Docker/WSL, and more.',
@@ -2495,7 +2495,7 @@ export const en: MessageTree = {
     deployStep2LinuxBefore: 'On the host, run',
     deployStep2LinuxAfter: '— the report will be sent to {serverUrl}.',
     deployStep3Win10:
-      'Scheduling: run install_schedule.bat as administrator. Updates: update_scripts.bat (keeps agent_env.bat). The desktop “CORAX ticket” shortcut opens /h with this PC name.',
+      'Scheduling: run install_schedule.bat as administrator. Updates: update_scripts.bat (keeps agent_env.bat). The desktop “Оставить заявку” shortcut opens /h with this PC name.',
     deployStep3Win7:
       'Scheduling: create a Windows Task Scheduler task to run the bat manually or through GPO.',
     deployStep3Cpp:

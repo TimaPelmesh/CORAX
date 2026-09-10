@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useLocale } from '../i18n/LocaleContext'
-import { guideCopy, type GuideSection } from '../i18n/guideContent'
+import { filterGuideSections, guideCopy } from '../i18n/guideContent'
 
 export function GuidePage() {
   const { locale } = useLocale()
@@ -12,21 +12,7 @@ export function GuidePage() {
   const [query, setQuery] = useState('')
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
 
-  const sections = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return copy.sections
-    return copy.sections
-      .map((section) => {
-        const titleHit = section.title.toLowerCase().includes(q) || section.summary.toLowerCase().includes(q)
-        const steps = section.steps.filter(
-          (step) => step.title.toLowerCase().includes(q) || step.body.toLowerCase().includes(q),
-        )
-        if (titleHit) return section
-        if (steps.length === 0) return null
-        return { ...section, steps }
-      })
-      .filter((s): s is GuideSection => s != null)
-  }, [copy.sections, query])
+  const sections = useMemo(() => filterGuideSections(copy.sections, query), [copy.sections, query])
 
   useEffect(() => {
     const wanted = searchParams.get('section')
