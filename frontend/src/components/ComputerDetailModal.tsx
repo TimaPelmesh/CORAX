@@ -642,6 +642,54 @@ export function ComputerDetailModal({
                       <dd className="text-[var(--color-fg)]">{agentExtras.batteryHealthPercent}%</dd>
                     </div>
                   ) : null}
+                  {agentExtras?.uptimeHours != null ? (
+                    <div className="min-w-0">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.uptime')}</dt>
+                      <dd className="text-[var(--color-fg)]">{t('computerDetail.uptimeHours', { n: agentExtras.uptimeHours })}</dd>
+                    </div>
+                  ) : null}
+                  {agentExtras?.timezone ? (
+                    <div className="min-w-0">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.timezone')}</dt>
+                      <dd className="text-[var(--color-fg)]">{agentExtras.timezone}</dd>
+                    </div>
+                  ) : null}
+                  {agentExtras?.firewall ? (
+                    <div className="min-w-0">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.firewall')}</dt>
+                      <dd className="text-[var(--color-fg)]">{agentExtras.firewall}</dd>
+                    </div>
+                  ) : null}
+                  {agentExtras?.defenderHint ? (
+                    <div className="min-w-0">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.defender')}</dt>
+                      <dd className="text-[var(--color-fg)]">{agentExtras.defenderHint}</dd>
+                    </div>
+                  ) : null}
+                  {agentExtras?.screenResolution ? (
+                    <div className="min-w-0">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.resolution')}</dt>
+                      <dd className="font-mono text-sm text-[var(--color-fg)]">{agentExtras.screenResolution}</dd>
+                    </div>
+                  ) : null}
+                  {agentExtras?.activation ? (
+                    <div className="min-w-0">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.activation')}</dt>
+                      <dd className="text-[var(--color-fg)]">{agentExtras.activation}</dd>
+                    </div>
+                  ) : null}
+                  {agentExtras?.securityPosture ? (
+                    <div className="min-w-0 sm:col-span-2">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.securityPosture')}</dt>
+                      <dd className="font-medium text-amber-700">{agentExtras.securityPosture}</dd>
+                    </div>
+                  ) : null}
+                  {agentExtras?.loggedOnUsers.length ? (
+                    <div className="min-w-0 sm:col-span-2">
+                      <dt className="text-[var(--color-fg-muted)]">{t('computerDetail.loggedOnUsers')}</dt>
+                      <dd className="font-mono text-sm text-[var(--color-fg)]">{agentExtras.loggedOnUsers.join(', ')}</dd>
+                    </div>
+                  ) : null}
                 </dl>
                 {agentExtras && agentExtras.patchIds.length > 0 ? (
                   <div className="mt-4 border-t border-[var(--color-border)] pt-3">
@@ -758,11 +806,91 @@ export function ComputerDetailModal({
                           ) : null}
                           {pd.health ? <span>{pd.health}</span> : null}
                           {pd.sizeGb != null ? <span>{t('computerDetail.gb', { n: pd.sizeGb })}</span> : null}
+                          {pd.temperatureC != null ? <span>{pd.temperatureC}°C</span> : null}
+                          {pd.wearPercent != null ? <span>{t('computerDetail.diskWear', { n: pd.wearPercent })}</span> : null}
+                          {pd.powerOnHours != null ? <span>{t('computerDetail.diskPowerOnHours', { n: pd.powerOnHours })}</span> : null}
                         </div>
                       </div>
                     ))}
                     {agentExtras.batteryPercent != null ? (
                       <div className="text-xs text-[var(--color-fg-muted)]">{t('computerDetail.battery', { n: agentExtras.batteryPercent })}</div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {agentExtras &&
+                (agentExtras.monitors.length ||
+                  agentExtras.ramModules.length ||
+                  agentExtras.listeningPortsCount != null ||
+                  agentExtras.scheduledTasksCount != null ||
+                  agentExtras.hardErrorsCount != null ||
+                  agentExtras.problemDevicesCount != null ||
+                  agentExtras.sharesCount != null ||
+                  agentExtras.usbHistoryCount != null ||
+                  agentExtras.localUsersEnabled != null ||
+                  agentExtras.expiringCerts.length) ? (
+                  <div className="mt-4 space-y-2 border-t border-[var(--color-border)] pt-3">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--color-fg-subtle)]">
+                      {t('computerDetail.fullAudit')}
+                    </div>
+                    {agentExtras.monitors.length ? (
+                      <div className="text-sm">
+                        <span className="text-[var(--color-fg-muted)]">{t('computerDetail.monitors')}: </span>
+                        <span className="text-[var(--color-fg)]">{agentExtras.monitors.join(' · ')}</span>
+                      </div>
+                    ) : null}
+                    {agentExtras.ramModules.length ? (
+                      <div className="text-sm">
+                        <span className="text-[var(--color-fg-muted)]">{t('computerDetail.ramModules')}: </span>
+                        <span className="font-mono text-xs text-[var(--color-fg)]">{agentExtras.ramModules.join(' · ')}</span>
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      {agentExtras.listeningPortsCount != null ? (
+                        <span className="rounded-md bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-fg)]">
+                          {t('computerDetail.listeningPorts', { n: agentExtras.listeningPortsCount })}
+                        </span>
+                      ) : null}
+                      {agentExtras.scheduledTasksCount != null ? (
+                        <span className="rounded-md bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-fg)]">
+                          {t('computerDetail.scheduledTasks', { n: agentExtras.scheduledTasksCount })}
+                        </span>
+                      ) : null}
+                      {agentExtras.hardErrorsCount != null ? (
+                        <span className="rounded-md bg-amber-50 px-2 py-0.5 text-amber-950">
+                          {t('computerDetail.hardErrors', { n: agentExtras.hardErrorsCount })}
+                        </span>
+                      ) : null}
+                      {agentExtras.problemDevicesCount != null ? (
+                        <span className="rounded-md bg-amber-50 px-2 py-0.5 text-amber-950">
+                          {t('computerDetail.problemDevices', { n: agentExtras.problemDevicesCount })}
+                        </span>
+                      ) : null}
+                      {agentExtras.localUsersEnabled != null ? (
+                        <span className="rounded-md bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-fg)]">
+                          {t('computerDetail.localUsers', { n: agentExtras.localUsersEnabled })}
+                        </span>
+                      ) : null}
+                      {agentExtras.sharesCount != null ? (
+                        <span className="rounded-md bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-fg)]">
+                          {t('computerDetail.shares', { n: agentExtras.sharesCount })}
+                        </span>
+                      ) : null}
+                      {agentExtras.usbHistoryCount != null ? (
+                        <span className="rounded-md bg-[var(--color-surface-muted)] px-2 py-0.5 text-[var(--color-fg)]">
+                          {t('computerDetail.usbHistory', { n: agentExtras.usbHistoryCount })}
+                        </span>
+                      ) : null}
+                    </div>
+                    {agentExtras.expiringCerts.length ? (
+                      <div className="text-sm">
+                        <span className="text-[var(--color-fg-muted)]">{t('computerDetail.expiringCerts')}: </span>
+                        <span className="text-[var(--color-fg)]">
+                          {agentExtras.expiringCerts
+                            .map((c) => `${c.subject.replace(/^CN=/, '')} (${c.daysLeft}d)`)
+                            .join(', ')}
+                        </span>
+                      </div>
                     ) : null}
                   </div>
                 ) : null}

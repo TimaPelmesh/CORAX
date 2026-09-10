@@ -483,9 +483,6 @@ export function ServiceRequestsPage() {
       if (statsKpi.slaHitRate > 0) {
         bullets.push(t('requests.stats.insightSla', { pct: statsKpi.slaHitRate }))
       }
-      if (topAsg && topShare >= 30) {
-        bullets.push(t('requests.stats.insightLoad', { name: topAsg.name, pct: topShare }))
-      }
       if (statsKpi.highShare >= 20) {
         bullets.push(t('requests.stats.insightHigh', { pct: statsKpi.highShare }))
       }
@@ -531,10 +528,6 @@ export function ServiceRequestsPage() {
       setStatsAiBusy(false)
     }
   }
-
-  useEffect(() => {
-    setStatsAi(null)
-  }, [statsFrom, statsTo, statsBasis, statsGroup])
 
   const statsLineChart = useMemo(() => {
     const labels = statsSeries.items.map((x) => x.key)

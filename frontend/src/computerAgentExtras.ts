@@ -5,6 +5,14 @@ export type PhysicalDiskRow = {
   media: string | null
   health: string | null
   sizeGb: number | null
+  temperatureC: number | null
+  wearPercent: number | null
+  powerOnHours: number | null
+}
+
+export type ExpiringCert = {
+  subject: string
+  daysLeft: number
 }
 
 export type OfficeSummary = {
@@ -27,6 +35,24 @@ export type ParsedAgentExtras = {
   localAdmins: string[]
   batteryHealthPercent: number | null
   lastHotfix: string | null
+  uptimeHours: number | null
+  timezone: string | null
+  monitors: string[]
+  ramModules: string[]
+  firewall: string | null
+  defenderHint: string | null
+  listeningPortsCount: number | null
+  scheduledTasksCount: number | null
+  hardErrorsCount: number | null
+  expiringCerts: ExpiringCert[]
+  screenResolution: string | null
+  activation: string | null
+  securityPosture: string | null
+  problemDevicesCount: number | null
+  localUsersEnabled: number | null
+  sharesCount: number | null
+  loggedOnUsers: string[]
+  usbHistoryCount: number | null
 }
 
 function asObj(v: unknown): Record<string, unknown> | null {
@@ -78,6 +104,9 @@ export function parseAgentExtras(ext: Record<string, unknown> | null | undefined
       media: s(r.media_type),
       health: s(r.health_status),
       sizeGb: typeof r.size_gb === 'number' ? r.size_gb : null,
+      temperatureC: typeof r.temperature_c === 'number' && r.temperature_c > 0 ? r.temperature_c : null,
+      wearPercent: typeof r.wear_percent === 'number' && r.wear_percent > 0 ? r.wear_percent : null,
+      powerOnHours: typeof r.power_on_hours === 'number' && r.power_on_hours > 0 ? r.power_on_hours : null,
     }
   }).filter((x): x is PhysicalDiskRow => x != null)
 
@@ -142,6 +171,72 @@ export function parseAgentExtras(ext: Record<string, unknown> | null | undefined
       ? (asObj(ext.battery_health)!.health_percent as number)
       : null
 
+  const monitors = asArr(ext.monitors)
+    .map((row) => {
+      const r = asObj(row)
+      if (!r) return null
+      const parts = [s(r.manufacturer), s(r.model)].filter(Boolean)
+      const label = parts.join(' ')
+      const yr = typeof r.year === 'number' && r.year > 1990 ? ` (${r.year})` : ''
+      return label ? `${label}${yr}` : null
+    })
+    .filter((x): x is string => Boolean(x))
+
+  const ramModules = asArr(ext.ram_modules)
+    .map((row) => {
+      const r = asObj(row)
+      if (!r) return null
+      const size = typeof r.size_gb === 'number' ? `${r.size_gb} GB` : ''
+      const speed = typeof r.speed_mhz === 'number' && r.speed_mhz > 0 ? ` ${r.speed_mhz}MHz` : ''
+      const slot = s(r.slot) ? `${s(r.slot)}: ` : ''
+      const label = `${slot}${size}${speed}`.trim()
+      return label || null
+    })
+    .filter((x): x is string => Boolean(x))
+
+  const fw = asObj(ext.firewall)
+  let firewall: string | null = null
+  if (fw) {
+    const on = Object.entries(fw)
+      .filter(([, v]) => v === true)
+      .map(([k]) => k)
+    const off = Object.keys(fw).filter((k) => fw[k] !== true)
+    firewall = off.length === 0 ? 'on' : on.length === 0 ? 'off' : `${on.join('/')} on`
+  }
+
+  const defender = asObj(ext.defender)
+  let defenderHint: string | null = null
+  if (defender) {
+    const parts: string[] = []
+    if (defender.rtp_enabled === true) parts.push('RTP')
+    if (typeof defender.signature_age_days === 'number') {
+      parts.push(`sig ${defender.signature_age_days}d`)
+    }
+    defenderHint = parts.length ? parts.join(' · ') : null
+  }
+
+  const posture: string[] = []
+  if (ext.rdp_enabled === true) posture.push('RDP on')
+  if (ext.smb1_enabled === true) posture.push('SMB1 on')
+  if (ext.uac_enabled === false) posture.push('UAC off')
+  const securityPosture = posture.length ? posture.join(' · ') : null
+
+  const loggedOnUsers = asArr(ext.logged_on_users)
+    .map(s)
+    .filter((x): x is string => Boolean(x))
+    .slice(0, 12)
+
+  const expiringCerts = asArr(ext.expiring_certs)
+    .map((row) => {
+      const r = asObj(row)
+      if (!r) return null
+      const subject = s(r.subject)
+      if (subject == null || typeof r.days_left !== 'number') return null
+      return { subject, daysLeft: r.days_left }
+    })
+    .filter((x): x is ExpiringCert => x != null)
+    .slice(0, 10)
+
   return {
     primaryUser: s(sys?.primary_user),
     gateways,
@@ -162,5 +257,27 @@ export function parseAgentExtras(ext: Record<string, unknown> | null | undefined
     localAdmins,
     batteryHealthPercent: batteryHealth,
     lastHotfix: s(ext.last_hotfix_id),
+    uptimeHours: typeof ext.uptime_hours === 'number' ? ext.uptime_hours : null,
+    timezone: s(ext.timezone),
+    monitors,
+    ramModules,
+    firewall,
+    defenderHint,
+    listeningPortsCount:
+      typeof ext.listening_ports_count === 'number' ? ext.listening_ports_count : null,
+    scheduledTasksCount:
+      typeof ext.scheduled_tasks_count === 'number' ? ext.scheduled_tasks_count : null,
+    hardErrorsCount: asArr(ext.hard_errors).length || null,
+    expiringCerts,
+    screenResolution: s(ext.screen_resolution),
+    activation: s(ext.activation),
+    securityPosture,
+    problemDevicesCount: asArr(ext.problem_devices).length || null,
+    localUsersEnabled:
+      typeof ext.local_users_enabled === 'number' ? ext.local_users_enabled : null,
+    sharesCount: asArr(ext.shares).length || null,
+    loggedOnUsers,
+    usbHistoryCount:
+      typeof ext.usb_storage_history_count === 'number' ? ext.usb_storage_history_count : null,
   }
 }

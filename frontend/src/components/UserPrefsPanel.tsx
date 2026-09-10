@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { useLocale, type MessageKey } from '../i18n/LocaleContext'
@@ -42,12 +43,10 @@ export function UserPrefsPanel({
   open,
   onClose,
   navItems,
-  embedded = false,
 }: {
   open: boolean
   onClose: () => void
   navItems: PrefsNavItem[]
-  embedded?: boolean
 }) {
   const { t, locale, setLocale, isNavHidden, setNavHidden, showAllNav } = useLocale()
   const { theme, setTheme } = useTheme()
@@ -71,8 +70,13 @@ export function UserPrefsPanel({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- init only on open
   }, [open, onClose, user?.id])
 
@@ -132,8 +136,8 @@ export function UserPrefsPanel({
   if (!open) return null
 
   const form = (
-        <div className={embedded ? 'space-y-4 p-3' : 'min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5'}>
-          <div className={embedded ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5'}>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-5">
             <SectionCard title={t('prefs.profile')} className="lg:col-span-7">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <UserAvatar
@@ -297,7 +301,7 @@ export function UserPrefsPanel({
               }
             >
               <p className="mb-3 text-xs text-[var(--color-fg-subtle)]">{t('prefs.tabsHint')}</p>
-              <div className="grid max-h-56 grid-cols-1 gap-0.5 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-2 lg:grid-cols-3">
                 {uniqueItems.map((item) => {
                   const visible = !isNavHidden(item.path)
                   return (
@@ -320,11 +324,7 @@ export function UserPrefsPanel({
         </div>
   )
 
-  if (embedded) {
-    return <div className="max-h-[min(28rem,62vh)] overflow-y-auto">{form}</div>
-  }
-
-  return (
+  return createPortal(
     <div
       className="app-modal-layer fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-[2px] sm:items-center sm:p-6"
       onMouseDown={(e) => {
@@ -336,7 +336,7 @@ export function UserPrefsPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-prefs-title"
-        className="app-card flex max-h-[min(52rem,calc(100dvh-1.5rem))] w-full max-w-5xl flex-col overflow-hidden shadow-2xl ring-1 ring-black/5"
+        className="app-card flex max-h-[min(52rem,calc(100dvh-2rem))] w-full max-w-5xl flex-col overflow-hidden shadow-2xl ring-1 ring-black/5"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="border-b border-[var(--color-border)] px-5 py-3.5 sm:px-6">
@@ -359,6 +359,7 @@ export function UserPrefsPanel({
         </div>
         {form}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

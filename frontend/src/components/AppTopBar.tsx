@@ -46,7 +46,8 @@ export function AppTopBar({ navItems = [] }: AppTopBarProps) {
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const [profileOpen, setProfileOpen] = useState(false)
-  const [profileView, setProfileView] = useState<'menu' | 'notify' | 'settings'>('menu')
+  const [profileView, setProfileView] = useState<'menu' | 'notify'>('menu')
+  const [prefsOpen, setPrefsOpen] = useState(false)
   const [assigned, setAssigned] = useState<ServiceRequestRow[]>([])
   const [notifyLoading, setNotifyLoading] = useState(false)
   const [notifyPrefs, setNotifyPrefs] = useState<NotificationPrefs>({ enabled: true, readIds: [] })
@@ -471,7 +472,11 @@ export function AppTopBar({ navItems = [] }: AppTopBarProps) {
                 <button
                   type="button"
                   className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]"
-                  onClick={() => setProfileView('settings')}
+                  onClick={() => {
+                    setProfileOpen(false)
+                    setProfileView('menu')
+                    setPrefsOpen(true)
+                  }}
                 >
                   <IconSettings className="h-4 w-4" />
                   <span>{t('prefs.open')}</span>
@@ -491,25 +496,6 @@ export function AppTopBar({ navItems = [] }: AppTopBarProps) {
                 </button>
                 </div>
               </div>
-            ) : profileView === 'settings' ? (
-              <>
-                <div className="border-b border-[var(--color-border)] px-3.5 py-2.5">
-                  <button
-                    type="button"
-                    className="text-[12px] font-medium text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
-                    onClick={() => setProfileView('menu')}
-                  >
-                    ← {t('chrome.profileMenu')}
-                  </button>
-                  <div className="mt-1 text-[13px] font-semibold text-[var(--color-fg)]">{t('prefs.title')}</div>
-                </div>
-                <UserPrefsPanel
-                  open
-                  embedded
-                  navItems={navItems}
-                  onClose={() => setProfileView('menu')}
-                />
-              </>
             ) : (
               <>
                 <div className="border-b border-[var(--color-border)] px-3.5 py-2.5">
@@ -621,6 +607,7 @@ export function AppTopBar({ navItems = [] }: AppTopBarProps) {
           </div>
         ) : null}
       </div>
+      <UserPrefsPanel open={prefsOpen} navItems={navItems} onClose={() => setPrefsOpen(false)} />
     </div>
   )
 }
