@@ -4,7 +4,7 @@ import { useAuth } from '../AuthContext'
 import { CoraxLogo } from '../components/CoraxLogo'
 import { AppTopBar } from '../components/AppTopBar'
 import { IconClose, IconMenu } from '../components/icons'
-import { SidebarSectionList } from '../components/layout/SidebarNav'
+import { SettingsNavPanel, SidebarSectionList } from '../components/layout/SidebarNav'
 import { buildNavSections, prefsNavItems } from '../components/layout/navConfig'
 import { WikiRagIndexWatcher } from '../components/wikirag/WikiRagIndexWatcher'
 import { useNavCounts } from '../hooks/useNavCounts'
@@ -75,12 +75,35 @@ export function Layout() {
       .filter((section) => section.items.length > 0)
   }, [user, isNavHidden])
 
+  const settingsSection = navSections.find((section) => section.flyout)
+  const settingsFlyoutOpen = openGroups['nav.settings'] === true
+
+  const closeSettings = () => {
+    setOpenGroups((prev) => (prev['nav.settings'] ? { ...prev, 'nav.settings': false } : prev))
+  }
+
+  useEffect(() => {
+    if (desktopNavHidden) closeSettings()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desktopNavHidden])
+
+  useEffect(() => {
+    if (!settingsFlyoutOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeSettings()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsFlyoutOpen])
+
   const sidebarNav = (
     <>
-      <div className="relative flex h-14 shrink-0 items-center justify-end border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 lg:hidden">
+      <div className="relative flex h-14 shrink-0 items-center justify-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 pr-14 lg:pr-3.5">
+        <CoraxLogo variant="sidebar" alt="Corax" />
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] dark:text-[var(--color-fg-subtle)]"
+          className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] dark:text-[var(--color-fg-subtle)] lg:hidden"
           onClick={closeNav}
           aria-label={t('nav.closeMenu')}
         >
@@ -103,10 +126,30 @@ export function Layout() {
           t={t}
         />
       </nav>
+
+      {settingsSection ? (
+        <div
+          className={`absolute inset-0 z-20 flex flex-col bg-[var(--color-surface)] transition-transform duration-300 ease-out lg:hidden ${
+            settingsFlyoutOpen ? 'translate-x-0' : 'pointer-events-none translate-x-full'
+          }`}
+          aria-hidden={!settingsFlyoutOpen}
+        >
+          <SettingsNavPanel
+            title={t(settingsSection.titleKey)}
+            items={settingsSection.items}
+            navCounts={navCounts}
+            onNavigate={() => {
+              closeNav()
+              closeSettings()
+            }}
+            onBack={closeSettings}
+            backLabel={t('common.back')}
+            t={t}
+          />
+        </div>
+      ) : null}
     </>
   )
-
-  const settingsFlyoutOpen = openGroups['nav.settings'] === true
 
   return (
     <div className="app-layout-bg relative isolate flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-[var(--color-bg)] lg:flex-row">
@@ -140,7 +183,7 @@ export function Layout() {
 
       <aside
         id="app-sidebar"
-        className={`fixed inset-y-0 left-0 z-50 flex h-full w-[min(18.5rem,92vw)] flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] pl-[env(safe-area-inset-left)] transition-all duration-300 ease-out lg:static lg:z-auto lg:max-w-none lg:pl-0 lg:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-full w-[min(18.5rem,92vw)] flex-col overflow-hidden border-r border-[var(--color-border)] bg-[var(--color-surface)] pl-[env(safe-area-inset-left)] transition-all duration-300 ease-out lg:relative lg:static lg:z-auto lg:max-w-none lg:overflow-visible lg:pl-0 lg:shadow-none ${
           mobileNavVisible ? 'translate-x-0' : '-translate-x-full'
         } ${
           desktopNavHidden
@@ -150,6 +193,25 @@ export function Layout() {
       >
         {sidebarNav}
       </aside>
+
+      {settingsSection ? (
+        <aside
+          className={`sidebar-settings-pane h-full shrink-0 flex-col border-[var(--color-border)] bg-[var(--color-surface)] ${
+            settingsFlyoutOpen && !desktopNavHidden ? 'sidebar-settings-pane-open' : ''
+          }`}
+          aria-hidden={!settingsFlyoutOpen || desktopNavHidden}
+        >
+          <div className="sidebar-flyout-dock flex h-full w-[16rem] flex-col">
+            <SettingsNavPanel
+              title={t(settingsSection.titleKey)}
+              items={settingsSection.items}
+              navCounts={navCounts}
+              onNavigate={() => undefined}
+              t={t}
+            />
+          </div>
+        </aside>
+      ) : null}
 
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-bg)]">
         {welcomeToast ? (

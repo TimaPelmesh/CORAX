@@ -270,6 +270,28 @@ body {
   padding: 0.5rem 0.65rem;
 }
 
+.sidebar-settings-pane {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .sidebar-settings-pane {
+    display: flex;
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    pointer-events: none;
+    border-right-width: 0;
+    transition: width 280ms ease, border-color 280ms ease;
+  }
+
+  .sidebar-settings-pane-open {
+    width: 16rem;
+    pointer-events: auto;
+    border-right-width: 1px;
+  }
+}
+
 .sidebar-profile-btn {
   display: flex;
   flex: 1;

@@ -12,6 +12,7 @@ import {
   IconPencil,
   IconPrinter,
   IconZabbix,
+  IconSettings,
   IconSoftware,
   IconTag,
   IconTicket,
@@ -234,7 +235,7 @@ export function buildNavSections(user: { is_superuser?: boolean; role?: string }
   }
   sections.push({
     titleKey: 'nav.settings',
-    icon: IconKey,
+    icon: IconSettings,
     collapsible: true,
     flyout: true,
     items: settingsItems,

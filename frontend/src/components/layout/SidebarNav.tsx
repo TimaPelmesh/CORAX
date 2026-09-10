@@ -1,6 +1,6 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { memo, type ComponentType, type ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
+import { IconSettings } from '../icons'
 import { formatNavBadge } from '../../lib/navBadge'
 import type { NavBadgeKey, NavCounts, NavItemDef, NavSectionDef } from './navTypes'
 
@@ -122,151 +122,66 @@ export function SidebarGroupButton({
   )
 }
 
-type FlyoutPos = { top: number; left: number; maxHeight: number; dock: boolean }
-
-export function SidebarFlyoutGroup({
-  label,
-  icon: Icon,
-  open,
-  badge,
+export function SettingsNavPanel({
+  title,
   items,
   navCounts,
-  onToggle,
-  onClose,
   onNavigate,
+  onBack,
+  backLabel,
   t,
 }: {
-  label: string
-  icon: ComponentType<{ className?: string }>
-  open: boolean
-  badge?: number
+  title: string
   items: NavItemDef[]
   navCounts: NavCounts | null
-  onToggle: () => void
-  onClose: () => void
   onNavigate: () => void
+  onBack?: () => void
+  backLabel?: string
   t: (key: NavItemDef['labelKey']) => string
 }) {
-  const anchorRef = useRef<HTMLDivElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<FlyoutPos | null>(null)
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setPos(null)
-      return
-    }
-    const update = () => {
-      const el = anchorRef.current
-      if (!el) return
-      const r = el.getBoundingClientRect()
-      const dock = window.matchMedia('(min-width: 1024px)').matches
-      if (dock) {
-        const sidebar = document.getElementById('app-sidebar')
-        const sr = sidebar?.getBoundingClientRect()
-        setPos({
-          top: 0,
-          left: Math.round(sr?.right ?? r.right),
-          maxHeight: window.innerHeight,
-          dock: true,
-        })
-        return
-      }
-      const gap = 8
-      const margin = 8
-      const panelWidth = 248
-      const desiredMax = 460
-      let left = r.right + gap
-      if (left + panelWidth > window.innerWidth - margin) {
-        left = Math.max(margin, r.left - gap - panelWidth)
-      }
-      let top = r.top
-      const spaceBelow = window.innerHeight - margin - top
-      if (spaceBelow < desiredMax) {
-        top = Math.max(margin, window.innerHeight - margin - Math.min(desiredMax, window.innerHeight - margin * 2))
-      }
-      setPos({ top, left, maxHeight: window.innerHeight - margin - top, dock: false })
-    }
-    update()
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update, true)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update, true)
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (anchorRef.current?.contains(e.target as Node)) return
-      if (panelRef.current?.contains(e.target as Node)) return
-      onClose()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open, onClose])
-
-  const links = (
-    <div className={`flex flex-col ${pos?.dock ? 'gap-1' : 'gap-0.5'}`}>
-      {items.map((item) => (
-        <SidebarNavLink
-          key={item.to}
-          to={item.to}
-          end={item.end}
-          icon={item.icon}
-          badge={item.badgeKey ? navCounts?.[item.badgeKey] : undefined}
-          onNavigate={() => {
-            onNavigate()
-            onClose()
-          }}
-        >
-          {t(item.labelKey)}
-        </SidebarNavLink>
-      ))}
-    </div>
-  )
-
   return (
-    <div ref={anchorRef}>
-      <SidebarGroupButton
-        label={label}
-        icon={Icon}
-        open={open}
-        badge={badge}
-        onToggle={onToggle}
-        chevronMode="side"
-      />
-      {open && pos
-        ? createPortal(
-            <div
-              ref={panelRef}
-              className={
-                pos.dock
-                  ? 'sidebar-flyout-dock fixed z-[80] flex h-dvh w-[16rem] flex-col overflow-hidden border-y-0 border-l-0 border-r border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-4'
-                  : 'sidebar-scroll fixed z-[80] w-[15.5rem] overflow-y-auto overscroll-contain rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-xl shadow-black/10'
-              }
-              style={
-                pos.dock
-                  ? { top: 0, left: pos.left }
-                  : { top: pos.top, left: pos.left, maxHeight: pos.maxHeight }
-              }
-              role="menu"
-            >
-              <div className="sidebar-section-label">{label}</div>
-              {links}
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
+    <>
+      <div className="relative flex h-14 shrink-0 items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3.5">
+        {onBack ? (
+          <button
+            type="button"
+            className="absolute left-2 flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)] lg:hidden"
+            onClick={onBack}
+            aria-label={backLabel ?? title}
+          >
+            <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden>
+              <path
+                d="M12.5 4.5 7 10l5.5 5.5"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        ) : null}
+        <div className="flex w-full items-center justify-center gap-2">
+          <span className="sidebar-group-icon text-[var(--color-fg)]" aria-hidden>
+            <IconSettings className="h-4 w-4" />
+          </span>
+          <span className="text-[0.95rem] font-semibold tracking-tight text-[var(--color-fg)]">{title}</span>
+        </div>
+      </div>
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden px-2.5 py-3">
+        {items.map((item) => (
+          <SidebarNavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            icon={item.icon}
+            badge={item.badgeKey ? navCounts?.[item.badgeKey] : undefined}
+            onNavigate={onNavigate}
+          >
+            {t(item.labelKey)}
+          </SidebarNavLink>
+        ))}
+      </nav>
+    </>
   )
 }
 
@@ -295,17 +210,13 @@ export function SidebarSectionList({
           const flyoutOpen = openGroups[section.titleKey] === true
           return (
             <div key={section.titleKey} className="mt-auto border-t border-[var(--color-border)] pt-2">
-              <SidebarFlyoutGroup
+              <SidebarGroupButton
                 label={sectionTitle}
                 icon={section.icon}
                 open={flyoutOpen}
                 badge={sectionBadge}
-                items={section.items}
-                navCounts={navCounts}
                 onToggle={() => onToggleGroup(section.titleKey, flyoutOpen)}
-                onClose={() => onToggleGroup(section.titleKey, true)}
-                onNavigate={onNavigate}
-                t={t}
+                chevronMode="side"
               />
             </div>
           )
